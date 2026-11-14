@@ -1,0 +1,101 @@
+@import "tailwindcss";
+@custom-variant high-contrast (&:where(.high-contrast, .high-contrast *));
+
+@layer base {
+  :root {
+    --font-display: 'Plus Jakarta Sans', system-ui, -apple-system, sans-serif;
+    --font-sans: 'Public Sans', system-ui, -apple-system, sans-serif;
+    --font-mono: 'JetBrains Mono', ui-monospace, SFMono-Regular, monospace;
+    --ab-navy: #001f3f;
+    --ab-blue: #007bff;
+    --ab-blue-accessible: #0056b3;
+    --ab-green: #15803d;
+  }
+
+  html {
+    font-family: var(--font-sans);
+    font-size: 16px;
+    scroll-behavior: smooth;
+  }
+
+  html.text-scale-large {
+    font-size: 18px;
+  }
+
+  html.text-scale-xlarge {
+    font-size: 21px;
+  }
+
+  html.reduced-motion *,
+  html.reduced-motion *::before,
+  html.reduced-motion *::after {
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.001ms !important;
+    scroll-behavior: auto !important;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    *,
+    *::before,
+    *::after {
+      animation-duration: 0.001ms !important;
+      animation-iteration-count: 1 !important;
+      transition-duration: 0.001ms !important;
+      scroll-behavior: auto !important;
+    }
+  }
+
+  h1, h2, h3, h4, .font-display {
+    font-family: var(--font-display);
+  }
+
+  code, pre, .font-mono {
+    font-family: var(--font-mono);
+    font-variant-numeric: tabular-nums;
+  }
+
+  .tabular-nums {
+    font-variant-numeric: tabular-nums;
+  }
+
+  /* WCAG 2.2 AA Strong Visible Focus Indicators */
+  *:focus-visible {
+    outline: 3px solid #007bff;
+    outline-offset: 2px;
+  }
+
+  html.high-contrast *:focus-visible {
+    outline: 3px solid #ffd600;
+    outline-offset: 3px;
+  }
+
+  html.high-contrast body {
+    background-color: #000000 !important;
+    color: #ffffff !important;
+  }
+}
+
+/* Magnification mode subtle zoom on main workspace cards */
+html.magnifier-active main {
+  zoom: 1.08;
+}
+
+/* Skip link styling */
+.skip-link {
+  position: fixed;
+  top: -100px;
+  left: 1rem;
+  z-index: 100;
+  background-color: #001f3f;
+  color: #ffffff;
+  padding: 0.75rem 1.25rem;
+  border-radius: 0.5rem;
+  font-weight: 600;
+  border: 2px solid #007bff;
+  transition: top 0.15s ease;
+}
+
+.skip-link:focus {
+  top: 1rem;
+}
