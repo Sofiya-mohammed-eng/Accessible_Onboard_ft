@@ -12,11 +12,7 @@ import { FinalReviewView } from './components/FinalReviewView';
 import { NavigationHelperModal } from './components/NavigationHelperModal';
 import { StartupAccessibilityModal } from './components/StartupAccessibilityModal';
 import {
-  DEFAULT_APPLICATION_DRAFT,
-  DEFAULT_INTENDED_VALUES,
-  DEFAULT_PREFERENCES,
   appendActivity,
-  clearAllLocalData,
   loadActivities,
   loadApplicationDraft,
   loadIntendedValues,
@@ -41,7 +37,7 @@ export default function App() {
   const [preferences, setPreferences] = useState<AccessibilityPreferences>(() => loadPreferences());
   const [draft, setDraft] = useState<ApplicationDraft>(() => loadApplicationDraft());
   const [intended, setIntended] = useState<IntendedApplicationValues>(() => loadIntendedValues());
-  const [activities, setActivities] = useState<ActivityLogItem[]>(() => loadActivities());
+  const [, setActivities] = useState<ActivityLogItem[]>(() => loadActivities());
   const [currentView, setCurrentView] = useState<NavigationView>('landing');
   const [isSpeaking, setIsSpeaking] = useState<boolean>(false);
   const [liveCaption, setLiveCaption] = useState<string>('');
@@ -215,24 +211,6 @@ export default function App() {
     });
   }, [draft, intended]);
 
-  const handleClearLocalData = useCallback(() => {
-    clearAllLocalData();
-    setPreferences(DEFAULT_PREFERENCES);
-    setDraft(DEFAULT_APPLICATION_DRAFT);
-    setIntended(DEFAULT_INTENDED_VALUES);
-    setActivities([
-      {
-        id: 'act-reset',
-        timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-        action: 'Local workspace reset',
-        detail: 'All preferences and drafts restored to defaults.',
-        view: 'dashboard',
-      },
-    ]);
-    setLiveCaption('Local workspace data cleared.');
-    setStartupModalOpen(true);
-  }, []);
-
   const currentLangOption = getLanguageOption(preferences.language);
 
   return (
@@ -273,7 +251,7 @@ export default function App() {
           </div>
         )}
 
-      <main id="main-content" ref={mainRef} tabIndex={-1} className="flex-1 focus:outline-none">
+      <main id="main-content" ref={mainRef} tabIndex={-1} className="flex-1 scroll-mt-20 focus:outline-none">
         {currentView === 'landing' && (
           <LandingPage
             onNavigate={handleNavigate}
@@ -303,18 +281,7 @@ export default function App() {
           />
         )}
 
-        {currentView === 'dashboard' && (
-          <DashboardView
-            preferences={preferences}
-            draft={draft}
-            verificationReport={verificationReport}
-            activities={activities}
-            onNavigate={handleNavigate}
-            onOpenNavigationHelper={() => setNavHelperOpen(true)}
-            onUpdatePreferences={handleUpdatePreferences}
-            onClearLocalData={handleClearLocalData}
-          />
-        )}
+        {currentView === 'dashboard' && <DashboardView onNavigate={handleNavigate} />}
 
         {currentView === 'scanner' && (
           <WebsiteUnderstandingView
@@ -329,6 +296,8 @@ export default function App() {
             onSelectJobForApplication={handleSelectJobForApplication}
             onSpeakText={handleSpeakText}
             simplifiedInstructions={preferences.simplifiedInstructions}
+            onNavigate={handleNavigate}
+            onOpenPreferences={() => setStartupModalOpen(true)}
           />
         )}
 

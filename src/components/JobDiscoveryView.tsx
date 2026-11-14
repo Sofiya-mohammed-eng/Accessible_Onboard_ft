@@ -1,397 +1,506 @@
-import React, { useMemo, useState } from 'react';
-import { Volume2, CheckCircle2, ArrowRight, Info } from 'lucide-react';
-import {
-  filterSampleJobs,
-  generateJobBreakdown,
-} from '../engines/jobDiscovery';
-import {
-  ExperienceLevel,
-  JobListing,
-  JobSearchCriteria,
-  WorkArrangement,
-} from '../types/accessbridge';
+import React, { useEffect, useMemo, useState } from 'react';
+import { ArrowLeft, Check, Search, Shield } from 'lucide-react';
+import { JobListing, NavigationView } from '../types/accessbridge';
+import { JobPostingView } from './JobPostingView';
+import { LoginToApply } from './LoginToApply';
 
 interface JobDiscoveryViewProps {
   onSelectJobForApplication: (job: JobListing) => void;
   onSpeakText: (text: string) => void;
   simplifiedInstructions: boolean;
+  onNavigate: (view: NavigationView) => void;
+  onOpenPreferences: () => void;
+}
+
+type Schedule = 'Full-time' | 'Part-time';
+type Workplace = 'Remote' | 'Hybrid' | 'On-site';
+type AccessFeature = 'Accessible digital tools' | 'Physical access' | 'Accessible interview';
+
+interface Opportunity {
+  id: string;
+  mark: string;
+  title: string;
+  organization: string;
+  location: string;
+  workplace: Workplace;
+  schedule: Schedule;
+  level: string;
+  summary: string;
+  supports: string[];
+  applyBy: string;
+  match: string;
+  access: AccessFeature[];
+  skills: string[];
+}
+
+const OPPORTUNITIES: Opportunity[] = [
+  {
+    id: 'customer-support-associate',
+    mark: 'S',
+    title: 'Customer Support Associate',
+    organization: 'Selam Digital Services',
+    location: 'Addis Ababa · Hybrid',
+    workplace: 'Hybrid',
+    schedule: 'Full-time',
+    level: 'Entry level',
+    summary: 'Help customers by phone, email, and live chat using clear support guides.',
+    supports: ['Hybrid work', 'Flexible hours', 'Screen-reader tools'],
+    applyBy: '18 June 2025',
+    match: 'Strong match',
+    access: ['Accessible digital tools'],
+    skills: ['Customer support', 'Live chat', 'Email'],
+  },
+  {
+    id: 'junior-data-assistant',
+    mark: 'J',
+    title: 'Junior Data Assistant',
+    organization: 'Blue Nile Analytics',
+    location: 'Addis Ababa · Remote',
+    workplace: 'Remote',
+    schedule: 'Part-time',
+    level: 'Entry level',
+    summary: 'Check figures, tidy spreadsheets, and summarize results in plain language.',
+    supports: ['Remote work', 'Flexible hours', 'Accessible interview'],
+    applyBy: '9 July 2025',
+    match: 'Strong match',
+    access: ['Accessible interview'],
+    skills: ['Spreadsheets', 'Data checking'],
+  },
+  {
+    id: 'reception-coordinator',
+    mark: 'R',
+    title: 'Reception Coordinator',
+    organization: 'Unity Hall',
+    location: 'Addis Ababa · On-site',
+    workplace: 'On-site',
+    schedule: 'Full-time',
+    level: 'Entry level',
+    summary: 'Greet visitors, schedule appointments, and keep the lobby easy to move through.',
+    supports: ['Physical access', 'Flexible hours'],
+    applyBy: '25 June 2025',
+    match: 'Strong match',
+    access: ['Physical access'],
+    skills: ['Scheduling', 'Visitor support'],
+  },
+];
+
+const SCHEDULES: Array<'All' | Schedule> = ['All', 'Full-time', 'Part-time'];
+const WORKPLACES: Workplace[] = ['Remote', 'Hybrid', 'On-site'];
+const ACCESS_OPTIONS: AccessFeature[] = [
+  'Accessible digital tools',
+  'Physical access',
+  'Accessible interview',
+];
+
+function toListing(job: Opportunity): JobListing {
+  const arrangement =
+    job.workplace === 'Remote'
+      ? (['Remote'] as JobListing['arrangement'])
+      : job.schedule === 'Part-time'
+        ? (['Part-time', 'Flexible hours'] as JobListing['arrangement'])
+        : (['Full-time', 'Flexible hours'] as JobListing['arrangement']);
+
+  return {
+    id: job.id,
+    platform: 'LinkedIn',
+    title: job.title,
+    employer: job.organization,
+    arrangement,
+    experienceLevel: 'Entry',
+    hourlyRateMin: 25,
+    hourlyRateMax: 25,
+    paymentType: 'Hourly',
+    paymentDisplay: job.level,
+    description: job.summary,
+    requiredSkills: job.skills,
+    applicationRequirements: job.supports,
+    screeningQuestions: [
+      'Describe how you would use the available workplace arrangements for this role.',
+    ],
+    isSampleData: true,
+    accessibilityNotes: job.supports.join(', '),
+  };
 }
 
 export const JobDiscoveryView: React.FC<JobDiscoveryViewProps> = ({
   onSelectJobForApplication,
-  onSpeakText,
-  simplifiedInstructions,
+  onNavigate,
+  onOpenPreferences,
 }) => {
-  const [criteria, setCriteria] = useState<JobSearchCriteria>({
-    query: '',
-    skills: '',
-    arrangement: 'Any',
-    experienceLevel: 'Any',
-    minHourlyRate: 0,
-  });
-  const [selectedJobId, setSelectedJobId] = useState<string>('job-upwork-devsecops');
+  const [schedule, setSchedule] = useState<'All' | Schedule>('All');
+  const [workplace, setWorkplace] = useState<Workplace | ''>('');
+  const [access, setAccess] = useState<AccessFeature[]>([]);
+  const [query, setQuery] = useState('');
+  const [appliedQuery, setAppliedQuery] = useState('');
+  const [openJobId, setOpenJobId] = useState<string | null>(null);
+  const [postingId, setPostingId] = useState<string | null>(null);
+  const [loginJob, setLoginJob] = useState<Opportunity | null>(null);
 
-  const filteredJobs = useMemo(() => filterSampleJobs(criteria), [criteria]);
-  const selectedJob =
-    filteredJobs.find((j) => j.id === selectedJobId) || filteredJobs[0] || null;
+  const results = useMemo(() => {
+    const needle = appliedQuery.trim().toLowerCase();
+    return OPPORTUNITIES.filter((job) => {
+      if (schedule !== 'All' && job.schedule !== schedule) return false;
+      if (workplace && job.workplace !== workplace) return false;
+      if (access.length > 0 && !access.every((item) => job.access.includes(item))) return false;
+      if (!needle) return true;
+      const haystack = [
+        job.title,
+        job.organization,
+        job.summary,
+        job.location,
+        job.level,
+        ...job.skills,
+        ...job.supports,
+      ]
+        .join(' ')
+        .toLowerCase();
+      return haystack.includes(needle);
+    });
+  }, [access, appliedQuery, schedule, workplace]);
 
-  const breakdown = useMemo(
-    () => (selectedJob ? generateJobBreakdown(selectedJob, criteria.skills) : null),
-    [selectedJob, criteria.skills]
-  );
+  const posting = OPPORTUNITIES.find((job) => job.id === postingId) || null;
+
+  useEffect(() => {
+    if (posting) window.scrollTo({ top: 0, behavior: 'auto' });
+  }, [posting]);
+
+  if (loginJob) {
+    return (
+      <LoginToApply
+        jobTitle={loginJob.title}
+        employer={loginJob.organization}
+        onBack={() => setLoginJob(null)}
+        onContinue={() => onSelectJobForApplication(toListing(loginJob))}
+      />
+    );
+  }
+
+  if (posting) {
+    return (
+      <JobPostingView
+        jobId={posting.id}
+        title={posting.title}
+        organization={posting.organization}
+        location={posting.location}
+        schedule={posting.schedule}
+        level={posting.level}
+        summary={posting.summary}
+        supports={posting.supports}
+        skills={posting.skills}
+        applyBy={posting.applyBy}
+        onBack={() => setPostingId(null)}
+        onApply={() => setLoginJob(posting)}
+      />
+    );
+  }
+
+  const clearAll = () => {
+    setSchedule('All');
+    setWorkplace('');
+    setAccess([]);
+    setQuery('');
+    setAppliedQuery('');
+    setOpenJobId(null);
+  };
+
+  const toggleAccess = (feature: AccessFeature) => {
+    setAccess((current) =>
+      current.includes(feature) ? current.filter((item) => item !== feature) : [...current, feature]
+    );
+  };
 
   return (
-    <div className="mx-auto max-w-7xl px-4 py-8 sm:px-6 lg:px-8">
-      <div className="border-b border-slate-200 pb-6 high-contrast:border-white">
-        <p className="text-sm font-semibold text-[#0056B3] high-contrast:text-cyan-300">
-          Job Discovery Assistant
-        </p>
-        <h1 className="mt-1 font-display text-3xl font-bold text-[#001F3F] high-contrast:text-white">
-          Explore Sample Opportunities & Plain-Language Breakdowns
-        </h1>
-        <p className="mt-2 max-w-3xl text-sm text-slate-600 high-contrast:text-slate-300">
-          {simplifiedInstructions
-            ? 'Type a job title or skill below to filter sample jobs. Select any job to read a plain-language summary and start your application.'
-            : 'Filter curated sample listings across Upwork, LinkedIn, Indeed, Freelancer, and Fiverr. All listings below are local sample data—AccessBridge never fabricates live employment feeds.'}
-        </p>
-      </div>
-
-      {/* Search & Preference Filters */}
-      <section
-        aria-label="Job search criteria"
-        className="mt-6 rounded-xl border border-slate-200 bg-white p-6 high-contrast:border-white high-contrast:bg-black"
-      >
-        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-5">
-          <div>
-            <label
-              htmlFor="job-title-filter"
-              className="block text-xs font-semibold text-[#001F3F] high-contrast:text-white"
+    <div className="bg-[#f4f7f2] high-contrast:bg-black">
+      <div className="mx-auto flex max-w-7xl flex-col gap-10 px-4 py-8 sm:px-6 lg:flex-row lg:gap-12 lg:px-8 lg:py-10">
+        <aside className="w-full shrink-0 lg:w-56" aria-label="Filter jobs">
+          <div className="flex items-center justify-between gap-3">
+            <h2 className="font-display text-lg font-bold text-[#14281f] high-contrast:text-white">
+              Filter jobs
+            </h2>
+            <button
+              type="button"
+              onClick={clearAll}
+              className="text-sm font-semibold text-[#157347] underline decoration-[#157347]/40 underline-offset-4 hover:decoration-[#157347] high-contrast:text-yellow-300"
             >
-              Job Title or Keyword
-            </label>
-            <input
-              id="job-title-filter"
-              type="text"
-              value={criteria.query}
-              onChange={(e) => setCriteria((prev) => ({ ...prev, query: e.target.value }))}
-              placeholder="e.g., DevSecOps, QA, Writer"
-              className="mt-1.5 w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 high-contrast:border-white high-contrast:bg-black high-contrast:text-white"
-            />
+              Clear all
+            </button>
           </div>
 
-          <div>
-            <label
-              htmlFor="job-skills-filter"
-              className="block text-xs font-semibold text-[#001F3F] high-contrast:text-white"
-            >
-              Your Skills (comma-separated)
-            </label>
-            <input
-              id="job-skills-filter"
-              type="text"
-              value={criteria.skills}
-              onChange={(e) => setCriteria((prev) => ({ ...prev, skills: e.target.value }))}
-              placeholder="e.g., React, ARIA, Terraform"
-              className="mt-1.5 w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 high-contrast:border-white high-contrast:bg-black high-contrast:text-white"
-            />
-          </div>
-
-          <div>
-            <label
-              htmlFor="job-arrangement-filter"
-              className="block text-xs font-semibold text-[#001F3F] high-contrast:text-white"
-            >
-              Working Arrangement
-            </label>
-            <select
-              id="job-arrangement-filter"
-              value={criteria.arrangement}
-              onChange={(e) =>
-                setCriteria((prev) => ({
-                  ...prev,
-                  arrangement: e.target.value as WorkArrangement | 'Any',
-                }))
-              }
-              className="mt-1.5 w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 high-contrast:border-white high-contrast:bg-black high-contrast:text-white"
-            >
-              <option value="Any">Any arrangement</option>
-              <option value="Remote">Remote</option>
-              <option value="Async-friendly">Async-friendly</option>
-              <option value="Flexible hours">Flexible hours</option>
-              <option value="Part-time">Part-time</option>
-              <option value="Full-time">Full-time</option>
-            </select>
-          </div>
-
-          <div>
-            <label
-              htmlFor="job-exp-filter"
-              className="block text-xs font-semibold text-[#001F3F] high-contrast:text-white"
-            >
-              Experience Level
-            </label>
-            <select
-              id="job-exp-filter"
-              value={criteria.experienceLevel}
-              onChange={(e) =>
-                setCriteria((prev) => ({
-                  ...prev,
-                  experienceLevel: e.target.value as ExperienceLevel | 'Any',
-                }))
-              }
-              className="mt-1.5 w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 high-contrast:border-white high-contrast:bg-black high-contrast:text-white"
-            >
-              <option value="Any">Any level</option>
-              <option value="Entry">Entry</option>
-              <option value="Intermediate">Intermediate</option>
-              <option value="Expert">Expert</option>
-            </select>
-          </div>
-
-          <div>
-            <label
-              htmlFor="job-rate-filter"
-              className="block text-xs font-semibold text-[#001F3F] high-contrast:text-white"
-            >
-              Min Expected Rate ($/hr)
-            </label>
-            <input
-              id="job-rate-filter"
-              type="number"
-              min={0}
-              value={criteria.minHourlyRate || ''}
-              onChange={(e) =>
-                setCriteria((prev) => ({
-                  ...prev,
-                  minHourlyRate: Number(e.target.value) || 0,
-                }))
-              }
-              placeholder="e.g., 25"
-              className="mt-1.5 w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm font-mono tabular-nums text-slate-900 high-contrast:border-white high-contrast:bg-black high-contrast:text-white"
-            />
-          </div>
-        </div>
-      </section>
-
-      {/* Split Layout: Sample Listings + Plain-Language Breakdown */}
-      <div className="mt-6 grid grid-cols-1 gap-6 lg:grid-cols-12">
-        <section aria-label="Sample employment opportunities" className="space-y-4 lg:col-span-6">
-          <div className="flex items-center justify-between text-xs text-slate-600 high-contrast:text-slate-300">
-            <span>Showing {filteredJobs.length} sample listings</span>
-            <span>Local demonstration dataset</span>
-          </div>
-
-          {filteredJobs.length === 0 ? (
-            <div className="rounded-xl border border-slate-200 bg-white p-6 text-sm text-slate-600 high-contrast:border-white high-contrast:bg-black high-contrast:text-slate-300">
-              <p>No sample opportunities match your current filters.</p>
-              <button
-                type="button"
-                onClick={() =>
-                  setCriteria({
-                    query: '',
-                    skills: '',
-                    arrangement: 'Any',
-                    experienceLevel: 'Any',
-                    minHourlyRate: 0,
-                  })
-                }
-                className="mt-3 rounded-lg border border-slate-300 px-4 py-2 text-xs font-semibold text-[#001F3F] hover:bg-slate-50 high-contrast:border-white high-contrast:text-white"
-              >
-                Reset Job Filters
-              </button>
+          <fieldset className="mt-8 border-t border-[#e1e8e2] pt-6 high-contrast:border-white/25">
+            <legend className="text-sm font-semibold text-[#14281f] high-contrast:text-white">
+              Work schedule
+            </legend>
+            <div className="mt-3 space-y-1">
+              {SCHEDULES.map((option) => (
+                <FilterRadio
+                  key={option}
+                  name="work-schedule"
+                  label={option}
+                  checked={schedule === option}
+                  onSelect={() => setSchedule(option)}
+                />
+              ))}
             </div>
-          ) : (
-            filteredJobs.map((job) => {
-              const isSelected = selectedJob?.id === job.id;
-              return (
-                <article
-                  key={job.id}
-                  className={`rounded-xl border-2 bg-white p-5 transition-colors high-contrast:bg-black ${
-                    isSelected
-                      ? 'border-[#0056B3] high-contrast:border-yellow-300'
-                      : 'border-slate-200 hover:border-slate-300 high-contrast:border-slate-600'
-                  }`}
-                >
-                  <div className="flex flex-wrap items-center gap-2 text-xs text-slate-500 high-contrast:text-slate-400">
-                    <span className="font-semibold text-[#0056B3] high-contrast:text-cyan-300">
-                      {job.platform} Sample
-                    </span>
-                    <span aria-hidden="true">·</span>
-                    <span>{job.employer}</span>
-                    <span aria-hidden="true">·</span>
-                    <span>{job.experienceLevel}</span>
-                  </div>
+          </fieldset>
 
-                  <h2 className="mt-1.5 font-display text-lg font-bold text-[#001F3F] high-contrast:text-white">
-                    {job.title}
-                  </h2>
+          <fieldset className="mt-6 border-t border-[#e1e8e2] pt-6 high-contrast:border-white/25">
+            <legend className="text-sm font-semibold text-[#14281f] high-contrast:text-white">
+              Workplace
+            </legend>
+            <div className="mt-3 space-y-1">
+              {WORKPLACES.map((option) => (
+                <FilterRadio
+                  key={option}
+                  name="workplace"
+                  label={option}
+                  checked={workplace === option}
+                  onSelect={() => setWorkplace(option)}
+                />
+              ))}
+            </div>
+          </fieldset>
 
-                  <p className="mt-1 font-mono text-xs font-semibold tabular-nums text-[#15803D] high-contrast:text-green-400">
-                    {job.paymentDisplay}
-                  </p>
+          <fieldset className="mt-6 border-t border-[#e1e8e2] pt-6 high-contrast:border-white/25">
+            <legend className="text-sm font-semibold text-[#14281f] high-contrast:text-white">
+              Accessibility
+            </legend>
+            <div className="mt-3 space-y-1">
+              {ACCESS_OPTIONS.map((option) => (
+                <FilterCheck
+                  key={option}
+                  label={option}
+                  checked={access.includes(option)}
+                  onToggle={() => toggleAccess(option)}
+                />
+              ))}
+            </div>
+          </fieldset>
+        </aside>
 
-                  <p className="mt-2.5 text-sm leading-relaxed text-slate-600 high-contrast:text-slate-300">
-                    {job.description}
-                  </p>
-
-                  <p className="mt-3 text-xs text-slate-500 high-contrast:text-slate-400">
-                    Skills: {job.requiredSkills.join(' · ')}
-                  </p>
-
-                  <div className="mt-4 flex flex-wrap gap-2">
-                    <button
-                      type="button"
-                      onClick={() => setSelectedJobId(job.id)}
-                      className={`rounded-lg px-4 py-2 text-xs font-semibold ${
-                        isSelected
-                          ? 'bg-[#001F3F] text-white high-contrast:bg-yellow-300 high-contrast:text-black'
-                          : 'border border-slate-300 bg-white text-[#001F3F] hover:bg-slate-50 high-contrast:border-white high-contrast:bg-black high-contrast:text-white'
-                      }`}
-                    >
-                      {isSelected ? 'Viewing Breakdown' : 'Inspect Breakdown'}
-                    </button>
-
-                    <button
-                      type="button"
-                      onClick={() => onSelectJobForApplication(job)}
-                      className="inline-flex items-center gap-1.5 rounded-lg border border-[#0056B3] bg-white px-4 py-2 text-xs font-semibold text-[#0056B3] hover:bg-blue-50 high-contrast:border-cyan-300 high-contrast:bg-black high-contrast:text-cyan-300"
-                    >
-                      Prepare Application
-                      <ArrowRight className="h-3.5 w-3.5" aria-hidden="true" />
-                    </button>
-                  </div>
-                </article>
-              );
-            })
-          )}
-        </section>
-
-        {/* Plain-Language Job Explanation Panel */}
-        <aside
-          aria-label="Plain-language job explanation"
-          className="rounded-xl border border-slate-200 bg-white p-6 lg:col-span-6 lg:self-start high-contrast:border-white high-contrast:bg-black"
-        >
-          {selectedJob && breakdown ? (
+        <div className="min-w-0 flex-1">
+          <div className="flex flex-wrap items-start justify-between gap-4">
             <div>
-              <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-200 pb-4 high-contrast:border-slate-700">
-                <div>
-                  <p className="text-xs font-semibold text-[#0056B3] high-contrast:text-cyan-300">
-                    Plain-Language Job Assistant (Local Analysis)
-                  </p>
-                  <h2 className="mt-1 font-display text-xl font-bold text-[#001F3F] high-contrast:text-white">
-                    {selectedJob.title}
-                  </h2>
-                </div>
-
-                <button
-                  type="button"
-                  onClick={() =>
-                    onSpeakText(
-                      `Job explanation for ${selectedJob.title} at ${selectedJob.employer}. ${breakdown.roleSummary} Payment details: ${breakdown.compensationClarity} Accessibility notes: ${breakdown.accessibilityFit}`
-                    )
-                  }
-                  className="inline-flex items-center gap-1.5 rounded-lg border border-slate-300 px-3 py-2 text-xs font-semibold text-[#001F3F] hover:bg-slate-50 high-contrast:border-white high-contrast:text-yellow-300"
-                >
-                  <Volume2 className="h-4 w-4" aria-hidden="true" />
-                  Read Explanation Aloud
-                </button>
-              </div>
-
-              <div className="mt-5 space-y-5 text-sm">
-                <div>
-                  <h3 className="font-semibold text-[#001F3F] high-contrast:text-yellow-300">
-                    What You Will Do
-                  </h3>
-                  <p className="mt-1 leading-relaxed text-slate-700 high-contrast:text-slate-200">
-                    {breakdown.roleSummary}
-                  </p>
-                </div>
-
-                <div>
-                  <h3 className="font-semibold text-[#001F3F] high-contrast:text-yellow-300">
-                    Accessibility & Work Arrangement
-                  </h3>
-                  <p className="mt-1 leading-relaxed text-slate-700 high-contrast:text-slate-200">
-                    {breakdown.accessibilityFit}
-                  </p>
-                  <p className="mt-1.5 text-xs text-slate-500 high-contrast:text-slate-400">
-                    Arrangements: {selectedJob.arrangement.join(' · ')}
-                  </p>
-                </div>
-
-                <div>
-                  <h3 className="font-semibold text-[#001F3F] high-contrast:text-yellow-300">
-                    Payment & Experience Requirements
-                  </h3>
-                  <p className="mt-1 leading-relaxed text-slate-700 high-contrast:text-slate-200">
-                    {breakdown.compensationClarity}
-                  </p>
-                </div>
-
-                {criteria.skills.trim() && (
-                  <div className="rounded-lg border border-slate-200 bg-slate-50 p-4 high-contrast:border-white high-contrast:bg-neutral-950">
-                    <h3 className="text-xs font-semibold text-[#001F3F] high-contrast:text-yellow-300">
-                      Skill Match Against Your Entered Skills
-                    </h3>
-                    <p className="mt-1 text-xs text-slate-700 high-contrast:text-slate-200">
-                      Matched:{' '}
-                      {breakdown.matchedSkills.length > 0
-                        ? breakdown.matchedSkills.join(', ')
-                        : 'None yet'}
-                    </p>
-                    {breakdown.missingSkills.length > 0 && (
-                      <p className="mt-1 text-xs text-slate-600 high-contrast:text-slate-300">
-                        Additional skills listed: {breakdown.missingSkills.join(', ')}
-                      </p>
-                    )}
-                  </div>
-                )}
-
-                <div>
-                  <h3 className="font-semibold text-[#001F3F] high-contrast:text-yellow-300">
-                    Application Requirements Checklist
-                  </h3>
-                  <ul className="mt-2 space-y-1.5">
-                    {breakdown.checklist.map((req) => (
-                      <li
-                        key={req}
-                        className="flex items-start gap-2 text-xs text-slate-700 high-contrast:text-slate-200"
-                      >
-                        <CheckCircle2
-                          className="mt-0.5 h-4 w-4 shrink-0 text-[#15803D] high-contrast:text-green-400"
-                          aria-hidden="true"
-                        />
-                        <span>{req}</span>
-                      </li>
-                    ))}
-                  </ul>
-                </div>
-              </div>
-
-              <div className="mt-6 flex items-start gap-2 rounded-lg border border-slate-200 bg-slate-50 p-3 text-xs text-slate-600 high-contrast:border-slate-700 high-contrast:bg-neutral-950 high-contrast:text-slate-300">
-                <Info className="mt-0.5 h-4 w-4 shrink-0" aria-hidden="true" />
-                <span>
-                  Selecting &ldquo;Prepare Application&rdquo; pre-fills your Application Assistant
-                  and Intended Values locally without contacting {selectedJob.platform}.
-                </span>
-              </div>
-
               <button
                 type="button"
-                onClick={() => onSelectJobForApplication(selectedJob)}
-                className="mt-5 inline-flex w-full items-center justify-center gap-2 rounded-lg bg-[#001F3F] px-5 py-3.5 text-sm font-semibold text-white hover:bg-[#003366] high-contrast:bg-yellow-300 high-contrast:text-black"
+                onClick={() => onNavigate('dashboard')}
+                className="inline-flex items-center gap-1.5 text-sm font-semibold text-[#157347] hover:underline high-contrast:text-yellow-300"
               >
-                Help Me Apply for This Role
-                <ArrowRight className="h-4 w-4" aria-hidden="true" />
+                <ArrowLeft className="h-4 w-4" aria-hidden="true" />
+                Career home
               </button>
+              <p className="mt-5 text-[0.72rem] font-semibold uppercase tracking-[0.18em] text-[#1c6b45] high-contrast:text-yellow-300">
+                Career opportunities
+              </p>
+              <h1 className="mt-2 font-display text-4xl font-bold tracking-[-0.03em] text-[#14281f] high-contrast:text-white sm:text-5xl">
+                Find your next opportunity
+              </h1>
             </div>
-          ) : (
-            <p className="text-sm text-slate-600">
-              Select a job listing on the left to inspect its plain-language breakdown.
+            <button
+              type="button"
+              onClick={onOpenPreferences}
+              className="inline-flex items-center gap-2 rounded-xl border border-[#d5ddd6] bg-white px-4 py-2.5 text-sm font-semibold text-[#1c2e26] shadow-sm hover:border-[#b7c9be] high-contrast:border-white high-contrast:bg-black high-contrast:text-white"
+            >
+              <Shield className="h-4 w-4 text-[#157347] high-contrast:text-yellow-300" aria-hidden="true" />
+              Private preferences
+            </button>
+          </div>
+
+          <form
+            className="mt-6 flex items-center gap-2 rounded-2xl border border-[#1c6b45] bg-white p-1.5 shadow-[0_10px_30px_-24px_rgba(20,70,45,0.8)] high-contrast:border-yellow-300 high-contrast:bg-black"
+            role="search"
+            onSubmit={(event) => {
+              event.preventDefault();
+              setAppliedQuery(query);
+            }}
+          >
+            <Search className="ml-2 h-4 w-4 shrink-0 text-[#7d8f84]" aria-hidden="true" />
+            <label htmlFor="opportunity-search" className="sr-only">
+              Search by job title, skill, or organization
+            </label>
+            <input
+              id="opportunity-search"
+              type="search"
+              value={query}
+              onChange={(event) => setQuery(event.target.value)}
+              placeholder="Search by job title, skill, or organization"
+              className="min-w-0 flex-1 bg-transparent px-2 py-2.5 text-sm text-[#14281f] outline-none placeholder:text-[#8aa093] high-contrast:text-white"
+            />
+            <button
+              type="submit"
+              className="rounded-xl bg-[#157347] px-5 py-2.5 text-sm font-semibold text-white hover:bg-[#115c39] high-contrast:bg-yellow-300 high-contrast:text-black"
+            >
+              Search
+            </button>
+          </form>
+
+          <div className="mt-5 flex flex-wrap items-center justify-between gap-2 text-sm text-[#4a6356] high-contrast:text-slate-200">
+            <p>
+              {results.length} {results.length === 1 ? 'opportunity' : 'opportunities'} found
+            </p>
+            <p>Sorted by: Most relevant</p>
+          </div>
+
+          <ul className="mt-4 space-y-4">
+            {results.map((job) => {
+              const detailsOpen = openJobId === job.id;
+              const detailsId = `${job.id}-details`;
+              return (
+                <li
+                  key={job.id}
+                  className="rounded-2xl border border-[#e4ebe6] bg-white p-5 shadow-[0_16px_40px_-32px_rgba(20,60,42,0.7)] high-contrast:border-white high-contrast:bg-black sm:p-6"
+                >
+                  <div className="flex items-start gap-4">
+                    <span className="grid h-11 w-11 shrink-0 place-items-center rounded-xl bg-[#e7f4ec] font-display text-lg font-bold text-[#157347] high-contrast:bg-black high-contrast:text-yellow-300 high-contrast:ring-1 high-contrast:ring-yellow-300">
+                      {job.mark}
+                    </span>
+                    <div className="min-w-0 flex-1">
+                      <div className="flex flex-wrap items-start justify-between gap-3">
+                        <div>
+                          <h2 className="font-display text-xl font-bold text-[#14281f] high-contrast:text-white">
+                            {job.title}
+                          </h2>
+                          <p className="mt-0.5 text-sm text-[#5d7266] high-contrast:text-slate-300">
+                            {job.organization}
+                          </p>
+                        </div>
+                        <span className="rounded-md bg-[#e7f6ee] px-2.5 py-1 text-xs font-semibold text-[#157347] high-contrast:bg-black high-contrast:text-yellow-300 high-contrast:ring-1 high-contrast:ring-yellow-300">
+                          {job.match}
+                        </span>
+                      </div>
+
+                      <ul className="mt-3 flex flex-wrap gap-2">
+                        {[job.location, job.schedule, job.level].map((tag) => (
+                          <li
+                            key={tag}
+                            className="rounded-md bg-[#f3f6f4] px-2.5 py-1 text-xs font-medium text-[#3e564a] high-contrast:bg-black high-contrast:text-white high-contrast:ring-1 high-contrast:ring-white"
+                          >
+                            {tag}
+                          </li>
+                        ))}
+                      </ul>
+
+                      <p className="mt-3 text-sm leading-relaxed text-[#3e564a] high-contrast:text-slate-200">
+                        {job.summary}
+                      </p>
+
+                      <ul className="mt-3 flex flex-wrap gap-2">
+                        {job.supports.map((support) => (
+                          <li
+                            key={support}
+                            className="inline-flex items-center gap-1.5 rounded-full border border-[#dce7e0] bg-white px-2.5 py-1 text-xs font-medium text-[#2f4a3d] high-contrast:border-white high-contrast:text-white"
+                          >
+                            <Check className="h-3.5 w-3.5 text-[#157347] high-contrast:text-yellow-300" aria-hidden="true" />
+                            {support}
+                          </li>
+                        ))}
+                      </ul>
+
+                      <div className="mt-4 flex flex-wrap items-center justify-between gap-3 border-t border-[#e7eee9] pt-4 high-contrast:border-white/25">
+                        <p className="text-sm text-[#5d7266] high-contrast:text-slate-300">
+                          Apply by
+                          <span className="mt-0.5 block font-semibold text-[#14281f] high-contrast:text-white">
+                            {job.applyBy}
+                          </span>
+                        </p>
+                        <button
+                          type="button"
+                          aria-expanded={detailsOpen}
+                          aria-controls={detailsId}
+                          onClick={() => setOpenJobId(detailsOpen ? null : job.id)}
+                          className="rounded-xl border border-[#d5ddd6] bg-white px-4 py-2.5 text-sm font-semibold text-[#157347] hover:border-[#157347] high-contrast:border-yellow-300 high-contrast:bg-black high-contrast:text-yellow-300"
+                        >
+                          View job details
+                        </button>
+                      </div>
+
+                      {detailsOpen && (
+                        <div id={detailsId} className="mt-4 rounded-xl bg-[#f6faf7] p-4 high-contrast:bg-black high-contrast:ring-1 high-contrast:ring-white">
+                          <p className="text-sm leading-relaxed text-[#2f4a3d] high-contrast:text-slate-200">
+                            {job.summary} {job.organization} lists this as {job.level.toLowerCase()} in{' '}
+                            {job.location}.
+                          </p>
+                          <p className="mt-2 text-sm text-[#3e564a] high-contrast:text-slate-200">
+                            Workplace supports: {job.supports.join(', ')}.
+                          </p>
+                          <button
+                            type="button"
+                            onClick={() => setPostingId(job.id)}
+                            className="mt-4 rounded-xl bg-[#157347] px-4 py-2.5 text-sm font-semibold text-white hover:bg-[#115c39] high-contrast:bg-yellow-300 high-contrast:text-black"
+                          >
+                            Prepare application
+                          </button>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                </li>
+              );
+            })}
+          </ul>
+
+          {results.length === 0 && (
+            <p className="mt-6 rounded-2xl border border-dashed border-[#c9d8ce] bg-white px-5 py-8 text-center text-sm text-[#4a6356] high-contrast:border-white high-contrast:bg-black high-contrast:text-white">
+              No opportunities match these filters.
             </p>
           )}
-        </aside>
+        </div>
       </div>
     </div>
   );
 };
+
+function FilterRadio({
+  name,
+  label,
+  checked,
+  onSelect,
+}: {
+  name: string;
+  label: string;
+  checked: boolean;
+  onSelect: () => void;
+}) {
+  return (
+    <label className="relative flex cursor-pointer items-center gap-3 rounded-lg py-1.5 text-sm font-medium text-[#24382e] has-[:focus-visible]:outline has-[:focus-visible]:outline-2 has-[:focus-visible]:outline-offset-2 has-[:focus-visible]:outline-[#157347] high-contrast:text-white">
+      <input type="radio" name={name} checked={checked} onChange={onSelect} className="absolute inset-0 cursor-pointer opacity-0" />
+      <span
+        className={`pointer-events-none grid h-5 w-5 place-items-center rounded-full ${
+          checked
+            ? 'bg-[#157347] text-white high-contrast:bg-yellow-300 high-contrast:text-black'
+            : 'border-2 border-[#c5d1c9] bg-white high-contrast:border-white high-contrast:bg-black'
+        }`}
+        aria-hidden="true"
+      >
+        {checked && <Check className="h-3 w-3" strokeWidth={3} />}
+      </span>
+      {label}
+    </label>
+  );
+}
+
+function FilterCheck({
+  label,
+  checked,
+  onToggle,
+}: {
+  label: string;
+  checked: boolean;
+  onToggle: () => void;
+}) {
+  return (
+    <label className="relative flex cursor-pointer items-center gap-3 rounded-lg py-1.5 text-sm font-medium text-[#24382e] has-[:focus-visible]:outline has-[:focus-visible]:outline-2 has-[:focus-visible]:outline-offset-2 has-[:focus-visible]:outline-[#157347] high-contrast:text-white">
+      <input type="checkbox" checked={checked} onChange={onToggle} className="absolute inset-0 cursor-pointer opacity-0" />
+      <span
+        className={`pointer-events-none grid h-5 w-5 place-items-center rounded-md ${
+          checked
+            ? 'bg-[#157347] text-white high-contrast:bg-yellow-300 high-contrast:text-black'
+            : 'border-2 border-[#c5d1c9] bg-white high-contrast:border-white high-contrast:bg-black'
+        }`}
+        aria-hidden="true"
+      >
+        {checked && <Check className="h-3 w-3" strokeWidth={3} />}
+      </span>
+      {label}
+    </label>
+  );
+}
