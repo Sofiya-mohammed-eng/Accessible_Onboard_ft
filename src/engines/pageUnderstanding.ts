@@ -133,7 +133,7 @@ export const SAMPLE_WEB_PAGES: SampleWebPage[] = [
         accessibleName: 'Send Proposal for 12 Connects',
         selector: 'button.submit-proposal-btn',
         focusOrder: 11,
-        accessibilityNote: 'AccessBridge blocks auto-submit and triggers Verification Engine first.',
+        accessibilityNote: 'AllWays blocks auto-submit and triggers Verification Engine first.',
       },
     ],
   },
@@ -293,7 +293,7 @@ export const SAMPLE_WEB_PAGES: SampleWebPage[] = [
         focusOrder: 4,
         required: true,
         currentValue: '20 hours/week',
-        accessibilityNote: 'Checked by AccessBridge Verification Engine against intended schedule.',
+        accessibilityNote: 'Checked by AllWays Verification Engine against intended schedule.',
       },
       {
         id: 'el-in-badge',

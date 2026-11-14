@@ -225,7 +225,7 @@ export const WebsiteUnderstandingView: React.FC<WebsiteUnderstandingViewProps> =
           <p className="mt-2 text-sm text-slate-600 high-contrast:text-slate-300">
             When deployed as a Chrome Extension, the content script runs directly inside the active
             Upwork, LinkedIn, Indeed, Fiverr, or Freelancer tab and sends structured DOM elements and
-            actual form values to the AccessBridge verification engine using this schema:
+            actual form values to the AllWays verification engine using this schema:
           </p>
 
           <pre className="mt-4 overflow-x-auto rounded-lg border border-slate-200 bg-slate-950 p-4 text-xs text-slate-100 high-contrast:border-white">
@@ -279,7 +279,7 @@ export const WebsiteUnderstandingView: React.FC<WebsiteUnderstandingViewProps> =
               <span className="mx-2 text-slate-400" aria-hidden="true">
                 ·
               </span>
-              <span className={missingAltCount > 0 ? 'text-amber-700 high-contrast:text-yellow-300' : 'text-[#15803D]'}>
+              <span className={missingAltCount > 0 ? 'text-amber-700 high-contrast:text-yellow-300' : 'text-[#1a73e8]'}>
                 {missingAltCount} missing alt-text warnings
               </span>
             </div>
@@ -348,7 +348,7 @@ export const WebsiteUnderstandingView: React.FC<WebsiteUnderstandingViewProps> =
                             className={`inline-flex shrink-0 items-center gap-1 text-xs font-semibold ${
                               hasIssue
                                 ? 'text-amber-700 high-contrast:text-yellow-300'
-                                : 'text-[#15803D] high-contrast:text-green-400'
+                                : 'text-[#1a73e8] high-contrast:text-green-400'
                             }`}
                           >
                             {hasIssue ? (

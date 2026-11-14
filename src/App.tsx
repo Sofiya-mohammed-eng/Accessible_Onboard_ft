@@ -1,15 +1,13 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Globe, SlidersHorizontal } from 'lucide-react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { AppHeader } from './components/AppHeader';
 import { LandingPage } from './components/LandingPage';
 import { OnboardingWizard } from './components/OnboardingWizard';
 import { DashboardView } from './components/DashboardView';
-import { WebsiteUnderstandingView } from './components/WebsiteUnderstandingView';
 import { JobDiscoveryView } from './components/JobDiscoveryView';
 import { ApplicationAssistantView } from './components/ApplicationAssistantView';
-import { VerificationEngineView } from './components/VerificationEngineView';
-import { FinalReviewView } from './components/FinalReviewView';
-import { NavigationHelperModal } from './components/NavigationHelperModal';
+import { LoginToApply } from './components/LoginToApply';
+import { VoiceDock } from './components/VoiceDock';
+import { BlindConversation } from './components/BlindConversation';
 import { StartupAccessibilityModal } from './components/StartupAccessibilityModal';
 import {
   appendActivity,
@@ -23,7 +21,7 @@ import {
 } from './engines/preferencesStore';
 import { speakAloud, stopSpeakingAloud } from './engines/accessibilityEngine';
 import { getLanguageOption } from './engines/i18n';
-import { runDeterministicVerification } from './engines/verificationEngine';
+import { getPageCopy } from './engines/pageCopy';
 import {
   AccessibilityPreferences,
   ActivityLogItem,
@@ -31,6 +29,7 @@ import {
   IntendedApplicationValues,
   JobListing,
   NavigationView,
+  PreferredLanguage,
 } from './types/accessbridge';
 
 export default function App() {
@@ -41,17 +40,15 @@ export default function App() {
   const [currentView, setCurrentView] = useState<NavigationView>('landing');
   const [isSpeaking, setIsSpeaking] = useState<boolean>(false);
   const [liveCaption, setLiveCaption] = useState<string>('');
-  const [navHelperOpen, setNavHelperOpen] = useState<boolean>(false);
-  const [startupModalOpen, setStartupModalOpen] = useState<boolean>(() => {
-    const loaded = loadPreferences();
-    return !loaded.languageSelected || !loaded.startupModalCompleted;
-  });
+  const [startupModalOpen, setStartupModalOpen] = useState<boolean>(false);
+  const [signedIn, setSignedIn] = useState<boolean>(() => sessionStorage.getItem('allways-signed-in') === '1');
   const mainRef = useRef<HTMLElement | null>(null);
 
   // Sync accessibility & language attributes onto <html> element
   useEffect(() => {
     const root = document.documentElement;
     root.lang = preferences.language || 'en';
+    root.classList.toggle('theme-dark', preferences.colorMode === 'dark');
     root.classList.toggle('high-contrast', preferences.highContrast);
     root.classList.toggle('reduced-motion', preferences.reducedMotion);
     root.classList.toggle('magnifier-active', preferences.magnification);
@@ -76,25 +73,23 @@ export default function App() {
   );
 
   const handleNavigate = useCallback((view: NavigationView) => {
-    setCurrentView(view);
+    const needsAccount = view === 'jobs' || view === 'apply' || view === 'dashboard';
+    const next = needsAccount && !signedIn ? 'login' : view;
+    setCurrentView(next);
     window.scrollTo({ top: 0, behavior: 'auto' });
     setTimeout(() => {
       mainRef.current?.focus();
     }, 0);
-  }, []);
+  }, [signedIn]);
 
   // Global Keyboard Shortcuts (Alt+1 to Alt+7)
   useEffect(() => {
     const onKeyDown = (e: KeyboardEvent) => {
       if (!e.altKey) return;
       const map: Record<string, NavigationView> = {
-        '1': 'dashboard',
-        '2': 'scanner',
-        '3': 'jobs',
-        '4': 'apply',
-        '5': 'verify',
-        '6': 'review',
-        '7': 'onboarding',
+        '1': 'jobs',
+        '2': 'apply',
+        '3': 'login',
       };
       if (map[e.key]) {
         e.preventDefault();
@@ -141,12 +136,6 @@ export default function App() {
         chosenLabels || 'Standard navigation',
         destination
       );
-      if (
-        (preferences.preferredNavigationStyles || []).includes('switch_reduced_click') &&
-        destination === 'dashboard'
-      ) {
-        setNavHelperOpen(true);
-      }
       handleNavigate(destination);
     },
     [
@@ -196,25 +185,21 @@ export default function App() {
     [draft, intended, handleUpdateDraft, handleUpdateIntended, recordActivity, handleNavigate]
   );
 
-  const verificationReport = useMemo(() => {
-    return runDeterministicVerification(intended, {
-      job_title: draft.jobTitle,
-      hourly_rate: draft.hourlyRate,
-      availability: draft.availability,
-      experience_level: draft.experienceLevel,
-      email: draft.contactEmail,
-      portfolio_url: draft.portfolioUrl,
-      cover_letter: draft.coverLetter,
-      attachments_count: draft.attachments.length,
-      screening_answers: draft.screeningAnswers,
-      uninspectable_fields: [],
-    });
-  }, [draft, intended]);
-
   const currentLangOption = getLanguageOption(preferences.language);
+  const page = getPageCopy(preferences.language);
+  const openLanguage = useCallback(() => setStartupModalOpen(true), []);
+  const openDashboard = useCallback(() => handleNavigate('dashboard'), [handleNavigate]);
+  const chooseLanguage = useCallback(
+    (language: PreferredLanguage) => handleUpdatePreferences({ language, languageSelected: true }),
+    [handleUpdatePreferences],
+  );
+  const continueToSignIn = useCallback(() => {
+    setStartupModalOpen(false);
+    handleNavigate('login');
+  }, [handleNavigate]);
 
   return (
-    <div className="min-h-screen flex flex-col bg-slate-50 text-slate-900 high-contrast:bg-black high-contrast:text-white">
+    <div className="min-h-screen flex flex-col bg-transparent text-[#0e2a4a] high-contrast:bg-black high-contrast:text-white">
       <a href="#main-content" className="skip-link">
         Skip to main content
       </a>
@@ -222,16 +207,23 @@ export default function App() {
       <AppHeader
         currentView={currentView}
         onNavigate={handleNavigate}
+        onLogin={() => handleNavigate('login')}
+        onGetStarted={() => setStartupModalOpen(true)}
+        onOpenLanguage={() => setStartupModalOpen(true)}
         language={preferences.language}
+        languageLabel={currentLangOption.nativeName}
+        loginLabel={page.login}
+        signedIn={signedIn}
+        colorMode={preferences.colorMode}
+        onSetColorMode={(colorMode) => handleUpdatePreferences({ colorMode })}
       />
 
       {/* Live Visual Caption Banner (only rendered when active caption exists) */}
-      {(preferences.captions || preferences.visualAlerts || preferences.textBasedNotifications) &&
-        liveCaption && (
+      {liveCaption && (
           <div
             role="status"
             aria-live="polite"
-            className="border-b border-slate-200 bg-white px-4 py-2 text-xs text-slate-800 high-contrast:border-yellow-300 high-contrast:bg-black high-contrast:text-yellow-200"
+            className="border-b border-[#d5e6f7] bg-white/80 px-4 py-2 text-xs text-[#0e2a4a] backdrop-blur high-contrast:border-yellow-300 high-contrast:bg-black high-contrast:text-yellow-200"
           >
             <div className="mx-auto flex max-w-7xl items-center justify-between gap-4 sm:px-6 lg:px-8">
               <div>
@@ -255,6 +247,7 @@ export default function App() {
         {currentView === 'landing' && (
           <LandingPage
             onNavigate={handleNavigate}
+            onGetStarted={() => setStartupModalOpen(true)}
             hasCompletedOnboarding={preferences.onboardingCompleted}
             language={preferences.language}
           />
@@ -281,14 +274,8 @@ export default function App() {
           />
         )}
 
-        {currentView === 'dashboard' && <DashboardView onNavigate={handleNavigate} />}
-
-        {currentView === 'scanner' && (
-          <WebsiteUnderstandingView
-            onSpeakText={handleSpeakText}
-            onNavigate={handleNavigate}
-            simplifiedInstructions={preferences.simplifiedInstructions}
-          />
+        {currentView === 'dashboard' && (
+          <DashboardView onNavigate={handleNavigate} language={preferences.language} />
         )}
 
         {currentView === 'jobs' && (
@@ -298,6 +285,7 @@ export default function App() {
             simplifiedInstructions={preferences.simplifiedInstructions}
             onNavigate={handleNavigate}
             onOpenPreferences={() => setStartupModalOpen(true)}
+            language={preferences.language}
           />
         )}
 
@@ -316,98 +304,78 @@ export default function App() {
           />
         )}
 
-        {currentView === 'verify' && (
-          <VerificationEngineView
-            intended={intended}
-            draft={draft}
-            onUpdateIntended={handleUpdateIntended}
-            onUpdateDraft={handleUpdateDraft}
-            onNavigate={handleNavigate}
-            onSpeakText={handleSpeakText}
-            onLogVerification={(summary) => recordActivity('Verification check', summary, 'verify')}
-          />
-        )}
-
-        {currentView === 'review' && (
-          <FinalReviewView
-            draft={draft}
-            report={verificationReport}
-            onNavigate={handleNavigate}
-            onSpeakText={handleSpeakText}
-            onConfirmApplicationReady={() =>
-              recordActivity(
-                'Confirmed application readiness',
-                `${draft.jobTitle} marked ready for manual submission`,
-                'review'
-              )
-            }
+        {currentView === 'login' && (
+          <LoginToApply
+            purpose="account"
+            language={preferences.language}
+            onBack={() => handleNavigate('landing')}
+            onContinue={() => {
+              sessionStorage.setItem('allways-signed-in', '1');
+              setSignedIn(true);
+              setCurrentView('jobs');
+            }}
           />
         )}
       </main>
 
-      <footer className="border-t border-slate-200 bg-white py-6 text-xs text-slate-600 high-contrast:border-white high-contrast:bg-black high-contrast:text-slate-300">
-        <div className="mx-auto flex max-w-7xl flex-wrap items-center justify-between gap-4 px-4 sm:px-6 lg:px-8">
-          <div className="flex flex-wrap items-center gap-3">
-            <span className="font-display font-bold text-[#001F3F] high-contrast:text-yellow-300">
-              AccessBridge
-            </span>
-            <span aria-hidden="true">·</span>
-            <span>Open-Source Universal Digital Accessibility Companion</span>
-            <span aria-hidden="true">·</span>
-            <span>Local-only privacy (zero passwords stored)</span>
+      <footer className="border-t border-white/80 bg-white/75 py-10 text-sm text-[#4d6786] backdrop-blur high-contrast:border-white high-contrast:bg-black high-contrast:text-slate-300">
+        <div className="mx-auto grid max-w-7xl gap-8 px-4 sm:px-6 lg:grid-cols-[1.4fr_1fr] lg:px-8">
+          <div>
+            <p className="font-display text-2xl font-bold text-[#0e2a4a] high-contrast:text-yellow-300">AllWays</p>
+            <p className="mt-2 max-w-md text-base text-[#0e2a4a] high-contrast:text-white">
+              {preferences.language === 'am'
+                ? 'አንድ መድረክ። የተለያዩ ችሎታዎች። እኩል እድሎች።'
+                : 'One platform. Different abilities. Equal opportunities.'}
+            </p>
+            <p className="mt-3 max-w-md leading-relaxed">
+              {preferences.language === 'am'
+                ? 'ቋንቋዎን ይምረጡ፣ ይግቡ፣ እና ሥራዎን በተረጋጋ ውይይት ያመልክቱ።'
+                : 'Choose your language, sign in, and apply for work in a calm conversation.'}
+            </p>
           </div>
-          <div className="flex flex-wrap items-center gap-4">
-            <button
-              type="button"
-              onClick={() => {
-                handleUpdatePreferences({ languageSelected: false });
-                setStartupModalOpen(true);
-              }}
-              className="inline-flex items-center gap-1.5 font-semibold text-[#0056B3] hover:underline high-contrast:text-cyan-300"
-            >
-              <Globe className="h-3.5 w-3.5" aria-hidden="true" />
-              Language: {currentLangOption.nativeName}
+          <nav aria-label={preferences.language === 'am' ? 'የግርጌ አገናኞች' : 'Footer'} className="flex flex-wrap items-start gap-3 lg:justify-end">
+            <button type="button" onClick={() => handleNavigate('landing')} className="rounded-full bg-white px-4 py-2 font-semibold text-[#0e2a4a] ring-1 ring-[#d5e6f7]">
+              {preferences.language === 'am' ? 'መነሻ' : 'Home'}
             </button>
-            <button
-              type="button"
-              onClick={() => setStartupModalOpen(true)}
-              className="inline-flex items-center gap-1.5 font-semibold text-[#0056B3] hover:underline high-contrast:text-cyan-300"
-            >
-              <SlidersHorizontal className="h-3.5 w-3.5" aria-hidden="true" />
-              Accessibility &amp; Navigation Window
-            </button>
-            <button
-              type="button"
-              onClick={() => handleNavigate('onboarding')}
-              className="font-semibold text-[#0056B3] hover:underline high-contrast:text-cyan-300"
-            >
-              Full Profile Settings
-            </button>
-            <button
-              type="button"
-              onClick={() => setNavHelperOpen(true)}
-              className="font-semibold text-[#0056B3] hover:underline high-contrast:text-cyan-300"
-            >
-              Help Me Navigate
-            </button>
-          </div>
+            {signedIn ? (
+              <>
+                <button type="button" onClick={() => handleNavigate('jobs')} className="rounded-full bg-white px-4 py-2 font-semibold text-[#0e2a4a] ring-1 ring-[#d5e6f7]">
+                  {preferences.language === 'am' ? 'ስራ ፈልግ' : 'Find Jobs'}
+                </button>
+                <button type="button" onClick={() => handleNavigate('apply')} className="rounded-full bg-white px-4 py-2 font-semibold text-[#0e2a4a] ring-1 ring-[#d5e6f7]">
+                  {preferences.language === 'am' ? 'ያመልክቱ' : 'Apply'}
+                </button>
+              </>
+            ) : (
+              <button type="button" onClick={() => handleNavigate('login')} className="rounded-full bg-[#1a73e8] px-4 py-2 font-semibold text-white">
+                {preferences.language === 'am' ? 'ይግቡ' : 'Sign in'}
+              </button>
+            )}
+          </nav>
         </div>
       </footer>
 
-      {/* Floating Re-open Accessibility Window Trigger (when modal is closed) */}
+      <BlindConversation
+        enabled
+        language={preferences.language}
+        rate={preferences.speechRate}
+        pageKey={currentView}
+        languageOpen={startupModalOpen}
+        onCaption={setLiveCaption}
+        onGetStarted={openLanguage}
+        onOpenDashboard={openDashboard}
+        onChooseLanguage={chooseLanguage}
+        onContinueToSignIn={continueToSignIn}
+      />
       {!startupModalOpen && (
-        <button
-          type="button"
-          onClick={() => setStartupModalOpen(true)}
-          aria-label="Open Language, Accessibility and Navigation Setup Window"
-          className="fixed bottom-4 right-4 z-30 inline-flex items-center gap-2 rounded-lg border-2 border-[#001F3F] bg-white px-4 py-2.5 text-xs font-semibold text-[#001F3F] shadow-lg hover:bg-slate-50 high-contrast:border-yellow-300 high-contrast:bg-black high-contrast:text-yellow-300"
-        >
-          <SlidersHorizontal className="h-4 w-4" aria-hidden="true" />
-          {currentLangOption.nativeName} · Accessibility Window
-        </button>
+        <VoiceDock
+          language={preferences.language}
+          speaking={isSpeaking}
+          onSpeak={handleSpeakText}
+          onStop={handleStopSpeaking}
+        />
       )}
 
-      {/* Initial Startup Pop-up Window (Step 1: Language, Step 2: Accessibility & Navigation) */}
       <StartupAccessibilityModal
         isOpen={startupModalOpen}
         preferences={preferences}
@@ -415,22 +383,10 @@ export default function App() {
         onUpdatePreferences={handleUpdatePreferences}
         onSpeakText={handleSpeakText}
         onStopSpeaking={handleStopSpeaking}
-        onOpenNavigationHelper={() => {
-          handleUpdatePreferences({ languageSelected: true, startupModalCompleted: true });
-          setStartupModalOpen(false);
-          setNavHelperOpen(true);
-        }}
+        onOpenNavigationHelper={() => setStartupModalOpen(false)}
         onCompleteAndGo={handleCompleteStartupModal}
         onClose={() => setStartupModalOpen(false)}
-        canCloseDirectly={preferences.startupModalCompleted}
-      />
-
-      <NavigationHelperModal
-        isOpen={navHelperOpen}
-        onClose={() => setNavHelperOpen(false)}
-        onNavigate={handleNavigate}
-        onSpeakText={handleSpeakText}
-        onOpenStartupSetup={() => setStartupModalOpen(true)}
+        canCloseDirectly={preferences.languageSelected}
       />
     </div>
   );

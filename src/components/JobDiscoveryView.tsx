@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { ArrowLeft, Check, Search, Shield } from 'lucide-react';
-import { JobListing, NavigationView } from '../types/accessbridge';
+import { Check, Search, Shield } from 'lucide-react';
+import { getPageCopy } from '../engines/pageCopy';
+import { JobListing, NavigationView, PreferredLanguage } from '../types/accessbridge';
 import { JobPostingView } from './JobPostingView';
 import { LoginToApply } from './LoginToApply';
 
@@ -10,6 +11,7 @@ interface JobDiscoveryViewProps {
   simplifiedInstructions: boolean;
   onNavigate: (view: NavigationView) => void;
   onOpenPreferences: () => void;
+  language: PreferredLanguage;
 }
 
 type Schedule = 'Full-time' | 'Part-time';
@@ -126,7 +128,9 @@ export const JobDiscoveryView: React.FC<JobDiscoveryViewProps> = ({
   onSelectJobForApplication,
   onNavigate,
   onOpenPreferences,
+  language,
 }) => {
+  const page = getPageCopy(language);
   const [schedule, setSchedule] = useState<'All' | Schedule>('All');
   const [workplace, setWorkplace] = useState<Workplace | ''>('');
   const [access, setAccess] = useState<AccessFeature[]>([]);
@@ -167,6 +171,7 @@ export const JobDiscoveryView: React.FC<JobDiscoveryViewProps> = ({
   if (loginJob) {
     return (
       <LoginToApply
+        language={language}
         jobTitle={loginJob.title}
         employer={loginJob.organization}
         onBack={() => setLoginJob(null)}
@@ -188,8 +193,9 @@ export const JobDiscoveryView: React.FC<JobDiscoveryViewProps> = ({
         supports={posting.supports}
         skills={posting.skills}
         applyBy={posting.applyBy}
+        language={language}
         onBack={() => setPostingId(null)}
-        onApply={() => setLoginJob(posting)}
+        onApply={() => onSelectJobForApplication(toListing(posting))}
       />
     );
   }
@@ -210,24 +216,24 @@ export const JobDiscoveryView: React.FC<JobDiscoveryViewProps> = ({
   };
 
   return (
-    <div className="bg-[#f4f7f2] high-contrast:bg-black">
+    <div className="bg-transparent high-contrast:bg-black">
       <div className="mx-auto flex max-w-7xl flex-col gap-10 px-4 py-8 sm:px-6 lg:flex-row lg:gap-12 lg:px-8 lg:py-10">
         <aside className="w-full shrink-0 lg:w-56" aria-label="Filter jobs">
           <div className="flex items-center justify-between gap-3">
-            <h2 className="font-display text-lg font-bold text-[#14281f] high-contrast:text-white">
+            <h2 className="font-display text-lg font-bold text-[#0e2a4a] high-contrast:text-white">
               Filter jobs
             </h2>
             <button
               type="button"
               onClick={clearAll}
-              className="text-sm font-semibold text-[#157347] underline decoration-[#157347]/40 underline-offset-4 hover:decoration-[#157347] high-contrast:text-yellow-300"
+              className="text-sm font-semibold text-[#1a73e8] underline decoration-[#1a73e8]/40 underline-offset-4 hover:decoration-[#1a73e8] high-contrast:text-yellow-300"
             >
               Clear all
             </button>
           </div>
 
-          <fieldset className="mt-8 border-t border-[#e1e8e2] pt-6 high-contrast:border-white/25">
-            <legend className="text-sm font-semibold text-[#14281f] high-contrast:text-white">
+          <fieldset className="mt-8 border-t border-[#e1edf8] pt-6 high-contrast:border-white/25">
+            <legend className="text-sm font-semibold text-[#0e2a4a] high-contrast:text-white">
               Work schedule
             </legend>
             <div className="mt-3 space-y-1">
@@ -243,8 +249,8 @@ export const JobDiscoveryView: React.FC<JobDiscoveryViewProps> = ({
             </div>
           </fieldset>
 
-          <fieldset className="mt-6 border-t border-[#e1e8e2] pt-6 high-contrast:border-white/25">
-            <legend className="text-sm font-semibold text-[#14281f] high-contrast:text-white">
+          <fieldset className="mt-6 border-t border-[#e1edf8] pt-6 high-contrast:border-white/25">
+            <legend className="text-sm font-semibold text-[#0e2a4a] high-contrast:text-white">
               Workplace
             </legend>
             <div className="mt-3 space-y-1">
@@ -260,8 +266,8 @@ export const JobDiscoveryView: React.FC<JobDiscoveryViewProps> = ({
             </div>
           </fieldset>
 
-          <fieldset className="mt-6 border-t border-[#e1e8e2] pt-6 high-contrast:border-white/25">
-            <legend className="text-sm font-semibold text-[#14281f] high-contrast:text-white">
+          <fieldset className="mt-6 border-t border-[#e1edf8] pt-6 high-contrast:border-white/25">
+            <legend className="text-sm font-semibold text-[#0e2a4a] high-contrast:text-white">
               Accessibility
             </legend>
             <div className="mt-3 space-y-1">
@@ -280,33 +286,25 @@ export const JobDiscoveryView: React.FC<JobDiscoveryViewProps> = ({
         <div className="min-w-0 flex-1">
           <div className="flex flex-wrap items-start justify-between gap-4">
             <div>
-              <button
-                type="button"
-                onClick={() => onNavigate('dashboard')}
-                className="inline-flex items-center gap-1.5 text-sm font-semibold text-[#157347] hover:underline high-contrast:text-yellow-300"
-              >
-                <ArrowLeft className="h-4 w-4" aria-hidden="true" />
-                Career home
-              </button>
-              <p className="mt-5 text-[0.72rem] font-semibold uppercase tracking-[0.18em] text-[#1c6b45] high-contrast:text-yellow-300">
+              <p className="text-[0.72rem] font-semibold uppercase tracking-[0.18em] text-[#1565c0] high-contrast:text-yellow-300">
                 Career opportunities
               </p>
-              <h1 className="mt-2 font-display text-4xl font-bold tracking-[-0.03em] text-[#14281f] high-contrast:text-white sm:text-5xl">
-                Find your next opportunity
+              <h1 className="mt-2 font-display text-4xl font-bold tracking-[-0.03em] text-[#0e2a4a] high-contrast:text-white sm:text-5xl">
+                {page.findJobsTitle}
               </h1>
             </div>
             <button
               type="button"
               onClick={onOpenPreferences}
-              className="inline-flex items-center gap-2 rounded-xl border border-[#d5ddd6] bg-white px-4 py-2.5 text-sm font-semibold text-[#1c2e26] shadow-sm hover:border-[#b7c9be] high-contrast:border-white high-contrast:bg-black high-contrast:text-white"
+              className="inline-flex items-center gap-2 rounded-xl border border-[#d0e3f5] bg-white px-4 py-2.5 text-sm font-semibold text-[#0e2a4a] shadow-sm hover:border-[#b7d0ea] high-contrast:border-white high-contrast:bg-black high-contrast:text-white"
             >
-              <Shield className="h-4 w-4 text-[#157347] high-contrast:text-yellow-300" aria-hidden="true" />
-              Private preferences
+              <Shield className="h-4 w-4 text-[#1a73e8] high-contrast:text-yellow-300" aria-hidden="true" />
+              {page.privateFeature}
             </button>
           </div>
 
           <form
-            className="mt-6 flex items-center gap-2 rounded-2xl border border-[#1c6b45] bg-white p-1.5 shadow-[0_10px_30px_-24px_rgba(20,70,45,0.8)] high-contrast:border-yellow-300 high-contrast:bg-black"
+            className="mt-6 flex items-center gap-2 rounded-2xl border border-[#1565c0] bg-white p-1.5 shadow-[0_10px_30px_-24px_rgba(26,115,232,0.8)] high-contrast:border-yellow-300 high-contrast:bg-black"
             role="search"
             onSubmit={(event) => {
               event.preventDefault();
@@ -315,25 +313,25 @@ export const JobDiscoveryView: React.FC<JobDiscoveryViewProps> = ({
           >
             <Search className="ml-2 h-4 w-4 shrink-0 text-[#7d8f84]" aria-hidden="true" />
             <label htmlFor="opportunity-search" className="sr-only">
-              Search by job title, skill, or organization
+              {page.searchPlaceholder}
             </label>
             <input
               id="opportunity-search"
               type="search"
               value={query}
               onChange={(event) => setQuery(event.target.value)}
-              placeholder="Search by job title, skill, or organization"
-              className="min-w-0 flex-1 bg-transparent px-2 py-2.5 text-sm text-[#14281f] outline-none placeholder:text-[#8aa093] high-contrast:text-white"
+              placeholder={page.searchPlaceholder}
+              className="min-w-0 flex-1 bg-transparent px-2 py-2.5 text-sm text-[#0e2a4a] outline-none placeholder:text-[#8aa093] high-contrast:text-white"
             />
             <button
               type="submit"
-              className="rounded-xl bg-[#157347] px-5 py-2.5 text-sm font-semibold text-white hover:bg-[#115c39] high-contrast:bg-yellow-300 high-contrast:text-black"
+              className="rounded-xl bg-[#1a73e8] px-5 py-2.5 text-sm font-semibold text-white hover:bg-[#1259b8] high-contrast:bg-yellow-300 high-contrast:text-black"
             >
-              Search
+              {page.search}
             </button>
           </form>
 
-          <div className="mt-5 flex flex-wrap items-center justify-between gap-2 text-sm text-[#4a6356] high-contrast:text-slate-200">
+          <div className="mt-5 flex flex-wrap items-center justify-between gap-2 text-sm text-[#4d6786] high-contrast:text-slate-200">
             <p>
               {results.length} {results.length === 1 ? 'opportunity' : 'opportunities'} found
             </p>
@@ -347,23 +345,23 @@ export const JobDiscoveryView: React.FC<JobDiscoveryViewProps> = ({
               return (
                 <li
                   key={job.id}
-                  className="rounded-2xl border border-[#e4ebe6] bg-white p-5 shadow-[0_16px_40px_-32px_rgba(20,60,42,0.7)] high-contrast:border-white high-contrast:bg-black sm:p-6"
+                  className="rounded-3xl border border-white/80 bg-white/85 p-5 shadow-[0_22px_50px_-28px_rgba(26,115,232,0.45)] backdrop-blur high-contrast:border-white high-contrast:bg-black sm:p-6"
                 >
                   <div className="flex items-start gap-4">
-                    <span className="grid h-11 w-11 shrink-0 place-items-center rounded-xl bg-[#e7f4ec] font-display text-lg font-bold text-[#157347] high-contrast:bg-black high-contrast:text-yellow-300 high-contrast:ring-1 high-contrast:ring-yellow-300">
+                    <span className="grid h-11 w-11 shrink-0 place-items-center rounded-xl bg-[#e7f3ff] font-display text-lg font-bold text-[#1a73e8] high-contrast:bg-black high-contrast:text-yellow-300 high-contrast:ring-1 high-contrast:ring-yellow-300">
                       {job.mark}
                     </span>
                     <div className="min-w-0 flex-1">
                       <div className="flex flex-wrap items-start justify-between gap-3">
                         <div>
-                          <h2 className="font-display text-xl font-bold text-[#14281f] high-contrast:text-white">
+                          <h2 className="font-display text-xl font-bold text-[#0e2a4a] high-contrast:text-white">
                             {job.title}
                           </h2>
-                          <p className="mt-0.5 text-sm text-[#5d7266] high-contrast:text-slate-300">
+                          <p className="mt-0.5 text-sm text-[#5a7390] high-contrast:text-slate-300">
                             {job.organization}
                           </p>
                         </div>
-                        <span className="rounded-md bg-[#e7f6ee] px-2.5 py-1 text-xs font-semibold text-[#157347] high-contrast:bg-black high-contrast:text-yellow-300 high-contrast:ring-1 high-contrast:ring-yellow-300">
+                        <span className="rounded-md bg-[#e7f6ee] px-2.5 py-1 text-xs font-semibold text-[#1a73e8] high-contrast:bg-black high-contrast:text-yellow-300 high-contrast:ring-1 high-contrast:ring-yellow-300">
                           {job.match}
                         </span>
                       </div>
@@ -372,14 +370,14 @@ export const JobDiscoveryView: React.FC<JobDiscoveryViewProps> = ({
                         {[job.location, job.schedule, job.level].map((tag) => (
                           <li
                             key={tag}
-                            className="rounded-md bg-[#f3f6f4] px-2.5 py-1 text-xs font-medium text-[#3e564a] high-contrast:bg-black high-contrast:text-white high-contrast:ring-1 high-contrast:ring-white"
+                            className="rounded-md bg-[#eaf3fc] px-2.5 py-1 text-xs font-medium text-[#3e5c7a] high-contrast:bg-black high-contrast:text-white high-contrast:ring-1 high-contrast:ring-white"
                           >
                             {tag}
                           </li>
                         ))}
                       </ul>
 
-                      <p className="mt-3 text-sm leading-relaxed text-[#3e564a] high-contrast:text-slate-200">
+                      <p className="mt-3 text-sm leading-relaxed text-[#3e5c7a] high-contrast:text-slate-200">
                         {job.summary}
                       </p>
 
@@ -387,47 +385,58 @@ export const JobDiscoveryView: React.FC<JobDiscoveryViewProps> = ({
                         {job.supports.map((support) => (
                           <li
                             key={support}
-                            className="inline-flex items-center gap-1.5 rounded-full border border-[#dce7e0] bg-white px-2.5 py-1 text-xs font-medium text-[#2f4a3d] high-contrast:border-white high-contrast:text-white"
+                            className="inline-flex items-center gap-1.5 rounded-full border border-[#d7e7f8] bg-white px-2.5 py-1 text-xs font-medium text-[#2c4a6e] high-contrast:border-white high-contrast:text-white"
                           >
-                            <Check className="h-3.5 w-3.5 text-[#157347] high-contrast:text-yellow-300" aria-hidden="true" />
+                            <Check className="h-3.5 w-3.5 text-[#1a73e8] high-contrast:text-yellow-300" aria-hidden="true" />
                             {support}
                           </li>
                         ))}
                       </ul>
 
-                      <div className="mt-4 flex flex-wrap items-center justify-between gap-3 border-t border-[#e7eee9] pt-4 high-contrast:border-white/25">
-                        <p className="text-sm text-[#5d7266] high-contrast:text-slate-300">
+                      <div className="mt-4 flex flex-wrap items-center justify-between gap-3 border-t border-[#e3eef8] pt-4 high-contrast:border-white/25">
+                        <p className="text-sm text-[#5a7390] high-contrast:text-slate-300">
                           Apply by
-                          <span className="mt-0.5 block font-semibold text-[#14281f] high-contrast:text-white">
+                          <span className="mt-0.5 block font-semibold text-[#0e2a4a] high-contrast:text-white">
                             {job.applyBy}
                           </span>
                         </p>
-                        <button
-                          type="button"
-                          aria-expanded={detailsOpen}
-                          aria-controls={detailsId}
-                          onClick={() => setOpenJobId(detailsOpen ? null : job.id)}
-                          className="rounded-xl border border-[#d5ddd6] bg-white px-4 py-2.5 text-sm font-semibold text-[#157347] hover:border-[#157347] high-contrast:border-yellow-300 high-contrast:bg-black high-contrast:text-yellow-300"
-                        >
-                          View job details
-                        </button>
+                        <div className="flex flex-wrap gap-2">
+                          <button
+                            type="button"
+                            data-voice-apply={job.title}
+                            onClick={() => onSelectJobForApplication(toListing(job))}
+                            className="rounded-xl bg-[#1a73e8] px-4 py-2.5 text-sm font-semibold text-white hover:bg-[#1259b8] high-contrast:bg-yellow-300 high-contrast:text-black"
+                          >
+                            {page.applyNow}
+                          </button>
+                          <button
+                            type="button"
+                            data-voice-details={job.title}
+                            aria-expanded={detailsOpen}
+                            aria-controls={detailsId}
+                            onClick={() => setOpenJobId(detailsOpen ? null : job.id)}
+                            className="rounded-xl border border-[#d0e3f5] bg-white px-4 py-2.5 text-sm font-semibold text-[#1a73e8] hover:border-[#1a73e8] high-contrast:border-yellow-300 high-contrast:bg-black high-contrast:text-yellow-300"
+                          >
+                            {page.viewDetails}
+                          </button>
+                        </div>
                       </div>
 
                       {detailsOpen && (
-                        <div id={detailsId} className="mt-4 rounded-xl bg-[#f6faf7] p-4 high-contrast:bg-black high-contrast:ring-1 high-contrast:ring-white">
-                          <p className="text-sm leading-relaxed text-[#2f4a3d] high-contrast:text-slate-200">
+                        <div id={detailsId} className="mt-4 rounded-xl bg-[#eef6ff] p-4 high-contrast:bg-black high-contrast:ring-1 high-contrast:ring-white">
+                          <p className="text-sm leading-relaxed text-[#2c4a6e] high-contrast:text-slate-200">
                             {job.summary} {job.organization} lists this as {job.level.toLowerCase()} in{' '}
                             {job.location}.
                           </p>
-                          <p className="mt-2 text-sm text-[#3e564a] high-contrast:text-slate-200">
+                          <p className="mt-2 text-sm text-[#3e5c7a] high-contrast:text-slate-200">
                             Workplace supports: {job.supports.join(', ')}.
                           </p>
                           <button
                             type="button"
                             onClick={() => setPostingId(job.id)}
-                            className="mt-4 rounded-xl bg-[#157347] px-4 py-2.5 text-sm font-semibold text-white hover:bg-[#115c39] high-contrast:bg-yellow-300 high-contrast:text-black"
+                            className="mt-4 rounded-xl bg-[#1a73e8] px-4 py-2.5 text-sm font-semibold text-white hover:bg-[#1259b8] high-contrast:bg-yellow-300 high-contrast:text-black"
                           >
-                            Prepare application
+                            {page.prepareApplication}
                           </button>
                         </div>
                       )}
@@ -439,8 +448,8 @@ export const JobDiscoveryView: React.FC<JobDiscoveryViewProps> = ({
           </ul>
 
           {results.length === 0 && (
-            <p className="mt-6 rounded-2xl border border-dashed border-[#c9d8ce] bg-white px-5 py-8 text-center text-sm text-[#4a6356] high-contrast:border-white high-contrast:bg-black high-contrast:text-white">
-              No opportunities match these filters.
+            <p className="mt-6 rounded-2xl border border-dashed border-[#c5dbf2] bg-white px-5 py-8 text-center text-sm text-[#4d6786] high-contrast:border-white high-contrast:bg-black high-contrast:text-white">
+              {page.noMatches}
             </p>
           )}
         </div>
@@ -461,13 +470,13 @@ function FilterRadio({
   onSelect: () => void;
 }) {
   return (
-    <label className="relative flex cursor-pointer items-center gap-3 rounded-lg py-1.5 text-sm font-medium text-[#24382e] has-[:focus-visible]:outline has-[:focus-visible]:outline-2 has-[:focus-visible]:outline-offset-2 has-[:focus-visible]:outline-[#157347] high-contrast:text-white">
+    <label className="relative flex cursor-pointer items-center gap-3 rounded-lg py-1.5 text-sm font-medium text-[#0e2a4a] has-[:focus-visible]:outline has-[:focus-visible]:outline-2 has-[:focus-visible]:outline-offset-2 has-[:focus-visible]:outline-[#1a73e8] high-contrast:text-white">
       <input type="radio" name={name} checked={checked} onChange={onSelect} className="absolute inset-0 cursor-pointer opacity-0" />
       <span
         className={`pointer-events-none grid h-5 w-5 place-items-center rounded-full ${
           checked
-            ? 'bg-[#157347] text-white high-contrast:bg-yellow-300 high-contrast:text-black'
-            : 'border-2 border-[#c5d1c9] bg-white high-contrast:border-white high-contrast:bg-black'
+            ? 'bg-[#1a73e8] text-white high-contrast:bg-yellow-300 high-contrast:text-black'
+            : 'border-2 border-[#c5daf2] bg-white high-contrast:border-white high-contrast:bg-black'
         }`}
         aria-hidden="true"
       >
@@ -488,13 +497,13 @@ function FilterCheck({
   onToggle: () => void;
 }) {
   return (
-    <label className="relative flex cursor-pointer items-center gap-3 rounded-lg py-1.5 text-sm font-medium text-[#24382e] has-[:focus-visible]:outline has-[:focus-visible]:outline-2 has-[:focus-visible]:outline-offset-2 has-[:focus-visible]:outline-[#157347] high-contrast:text-white">
+    <label className="relative flex cursor-pointer items-center gap-3 rounded-lg py-1.5 text-sm font-medium text-[#0e2a4a] has-[:focus-visible]:outline has-[:focus-visible]:outline-2 has-[:focus-visible]:outline-offset-2 has-[:focus-visible]:outline-[#1a73e8] high-contrast:text-white">
       <input type="checkbox" checked={checked} onChange={onToggle} className="absolute inset-0 cursor-pointer opacity-0" />
       <span
         className={`pointer-events-none grid h-5 w-5 place-items-center rounded-md ${
           checked
-            ? 'bg-[#157347] text-white high-contrast:bg-yellow-300 high-contrast:text-black'
-            : 'border-2 border-[#c5d1c9] bg-white high-contrast:border-white high-contrast:bg-black'
+            ? 'bg-[#1a73e8] text-white high-contrast:bg-yellow-300 high-contrast:text-black'
+            : 'border-2 border-[#c5daf2] bg-white high-contrast:border-white high-contrast:bg-black'
         }`}
         aria-hidden="true"
       >

@@ -5,12 +5,15 @@ export type NavigationView =
   | 'scanner'
   | 'jobs'
   | 'apply'
+  | 'login'
   | 'verify'
   | 'review';
 
 export type TextSizeOption = 'normal' | 'large' | 'xlarge';
 
-export type PreferredLanguage = 'en' | 'am' | 'om' | 'ti' | 'sgw';
+export type PreferredLanguage = 'en' | 'am';
+
+export type ColorMode = 'light' | 'dark';
 
 export type NavigationStyle =
   | 'keyboard_screen_reader'
@@ -57,6 +60,7 @@ export interface AccessibilityPreferences {
   startupModalCompleted: boolean;
 
   // Motion & speech settings
+  colorMode: ColorMode;
   reducedMotion: boolean;
   speechRate: number;
   onboardingCompleted: boolean;

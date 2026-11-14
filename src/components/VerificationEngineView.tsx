@@ -127,7 +127,7 @@ export const VerificationEngineView: React.FC<VerificationEngineViewProps> = ({
     switch (status) {
       case 'verified':
         return (
-          <span className="inline-flex items-center gap-1.5 rounded-md border border-green-300 bg-green-50 px-2.5 py-1 text-xs font-semibold text-[#15803D] high-contrast:border-green-400 high-contrast:bg-black high-contrast:text-green-400">
+          <span className="inline-flex items-center gap-1.5 rounded-md border border-green-300 bg-green-50 px-2.5 py-1 text-xs font-semibold text-[#1a73e8] high-contrast:border-green-400 high-contrast:bg-black high-contrast:text-green-400">
             <CheckCircle2 className="h-3.5 w-3.5" aria-hidden="true" />
             Verified
           </span>
@@ -217,7 +217,7 @@ export const VerificationEngineView: React.FC<VerificationEngineViewProps> = ({
           <button
             type="button"
             onClick={syncCleanDraftFromIntended}
-            className="inline-flex items-center gap-1.5 rounded-lg border border-green-300 bg-green-50 px-3.5 py-2 text-xs font-semibold text-[#15803D] hover:bg-green-100 high-contrast:border-green-400 high-contrast:bg-black high-contrast:text-green-400"
+            className="inline-flex items-center gap-1.5 rounded-lg border border-green-300 bg-green-50 px-3.5 py-2 text-xs font-semibold text-[#1a73e8] hover:bg-green-100 high-contrast:border-green-400 high-contrast:bg-black high-contrast:text-green-400"
           >
             <RefreshCw className="h-3.5 w-3.5" aria-hidden="true" />
             Align Draft to Intended Values
@@ -231,7 +231,7 @@ export const VerificationEngineView: React.FC<VerificationEngineViewProps> = ({
         aria-live="polite"
         className={`mt-6 rounded-xl border-2 p-5 ${
           report.overallStatus === 'verified'
-            ? 'border-[#15803D] bg-green-50 text-[#14532D] high-contrast:border-green-400 high-contrast:bg-black high-contrast:text-green-400'
+            ? 'border-[#1a73e8] bg-green-50 text-[#14532D] high-contrast:border-green-400 high-contrast:bg-black high-contrast:text-green-400'
             : report.overallStatus === 'error_detected'
               ? 'border-red-700 bg-red-50 text-red-900 high-contrast:border-red-400 high-contrast:bg-black high-contrast:text-red-400'
               : 'border-amber-600 bg-amber-50 text-amber-950 high-contrast:border-yellow-300 high-contrast:bg-black high-contrast:text-yellow-300'
@@ -277,7 +277,7 @@ export const VerificationEngineView: React.FC<VerificationEngineViewProps> = ({
             Intended Application Values (Your Target)
           </h2>
           <p className="mt-1 text-xs text-slate-600 high-contrast:text-slate-300">
-            AccessBridge treats these values as your source of truth.
+            AllWays treats these values as your source of truth.
           </p>
 
           <div className="mt-4 grid grid-cols-1 gap-3 sm:grid-cols-2">

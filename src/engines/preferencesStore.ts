@@ -34,6 +34,7 @@ export const DEFAULT_PREFERENCES: AccessibilityPreferences = {
   alternativeInputMethods: false,
   preferredNavigationStyles: ['keyboard_screen_reader'],
   startupModalCompleted: false,
+  colorMode: 'light',
   reducedMotion: false,
   speechRate: 1.0,
   onboardingCompleted: false,
@@ -106,7 +107,12 @@ function safeReadArray<T>(key: string, fallback: T[]): T[] {
 }
 
 export function loadPreferences(): AccessibilityPreferences {
-  return safeRead(KEYS.PREFERENCES, DEFAULT_PREFERENCES);
+  const loaded = safeRead(KEYS.PREFERENCES, DEFAULT_PREFERENCES);
+  return {
+    ...loaded,
+    language: loaded.language === 'am' ? 'am' : 'en',
+    colorMode: loaded.colorMode === 'dark' ? 'dark' : 'light',
+  };
 }
 
 export function savePreferences(prefs: AccessibilityPreferences): void {

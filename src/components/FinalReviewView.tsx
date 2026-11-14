@@ -47,7 +47,7 @@ export const FinalReviewView: React.FC<FinalReviewViewProps> = ({
 
   const handleCopyPacket = async () => {
     const packet = [
-      `AccessBridge Verified Application Summary`,
+      `AllWays Verified Application Summary`,
       `Platform: ${draft.platform}`,
       `Employer: ${draft.employer}`,
       `Job Title: ${draft.jobTitle}`,
@@ -86,7 +86,7 @@ export const FinalReviewView: React.FC<FinalReviewViewProps> = ({
               Review & Confirm Before Manual Submission
             </h1>
             <p className="mt-2 max-w-2xl text-sm text-slate-600 high-contrast:text-slate-300">
-              AccessBridge never submits applications automatically. Review every summarized detail
+              AllWays never submits applications automatically. Review every summarized detail
               below and explicitly confirm when you are ready.
             </p>
           </div>
@@ -111,7 +111,7 @@ export const FinalReviewView: React.FC<FinalReviewViewProps> = ({
         role="status"
         className={`mt-6 rounded-xl border-2 p-5 ${
           isReady
-            ? 'border-[#15803D] bg-green-50 text-[#14532D] high-contrast:border-green-400 high-contrast:bg-black high-contrast:text-green-400'
+            ? 'border-[#1a73e8] bg-green-50 text-[#14532D] high-contrast:border-green-400 high-contrast:bg-black high-contrast:text-green-400'
             : report.readinessStatus === 'Requires correction'
               ? 'border-red-700 bg-red-50 text-red-900 high-contrast:border-red-400 high-contrast:bg-black high-contrast:text-red-400'
               : 'border-amber-600 bg-amber-50 text-amber-950 high-contrast:border-yellow-300 high-contrast:bg-black high-contrast:text-yellow-300'
@@ -284,7 +284,7 @@ export const FinalReviewView: React.FC<FinalReviewViewProps> = ({
           <span>
             I have personally reviewed my job title, hourly rate, availability, experience level,
             contact details, cover letter, screening answers, and attachments. I understand
-            AccessBridge will not submit this application automatically.
+            AllWays will not submit this application automatically.
           </span>
         </label>
 
@@ -315,7 +315,7 @@ export const FinalReviewView: React.FC<FinalReviewViewProps> = ({
             onClick={handleConfirm}
             className={`rounded-lg px-6 py-3 text-sm font-semibold transition-colors ${
               userConfirmed
-                ? 'bg-[#15803D] text-white hover:bg-[#166534] high-contrast:bg-green-400 high-contrast:text-black'
+                ? 'bg-[#1a73e8] text-white hover:bg-[#166534] high-contrast:bg-green-400 high-contrast:text-black'
                 : 'cursor-not-allowed bg-slate-200 text-slate-500 high-contrast:bg-neutral-800 high-contrast:text-slate-500'
             }`}
           >
@@ -332,7 +332,7 @@ export const FinalReviewView: React.FC<FinalReviewViewProps> = ({
         {confirmedTimestamp && (
           <div
             role="status"
-            className="mt-4 flex items-start gap-2 rounded-lg border border-green-300 bg-green-50 p-4 text-sm font-semibold text-[#15803D] high-contrast:border-green-400 high-contrast:bg-neutral-950 high-contrast:text-green-400"
+            className="mt-4 flex items-start gap-2 rounded-lg border border-green-300 bg-green-50 p-4 text-sm font-semibold text-[#1a73e8] high-contrast:border-green-400 high-contrast:bg-neutral-950 high-contrast:text-green-400"
           >
             <CheckCircle2 className="mt-0.5 h-5 w-5 shrink-0" aria-hidden="true" />
             <span>

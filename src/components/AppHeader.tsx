@@ -1,25 +1,46 @@
 import React, { useState } from 'react';
-import { Menu, X } from 'lucide-react';
+import { Globe, Menu, Moon, Sun, X } from 'lucide-react';
 import { getLocalizedCopy } from '../engines/i18n';
-import { NavigationView, PreferredLanguage } from '../types/accessbridge';
+import { ColorMode, NavigationView, PreferredLanguage } from '../types/accessbridge';
 
 interface AppHeaderProps {
   currentView: NavigationView;
   onNavigate: (view: NavigationView) => void;
+  onLogin: () => void;
+  onGetStarted: () => void;
+  onOpenLanguage: () => void;
   language: PreferredLanguage;
+  languageLabel: string;
+  loginLabel: string;
+  signedIn: boolean;
+  colorMode: ColorMode;
+  onSetColorMode: (mode: ColorMode) => void;
 }
 
-export const AppHeader: React.FC<AppHeaderProps> = ({ currentView, onNavigate, language }) => {
+export const AppHeader: React.FC<AppHeaderProps> = ({
+  currentView,
+  onNavigate,
+  onLogin,
+  onGetStarted,
+  onOpenLanguage,
+  language,
+  languageLabel,
+  loginLabel,
+  signedIn,
+  colorMode,
+  onSetColorMode,
+}) => {
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const copy = getLocalizedCopy(language);
 
-  const workspaceLinks: Array<{ view: NavigationView; label: string }> = [
-    { view: 'dashboard', label: copy.navDashboard },
-    { view: 'scanner', label: copy.navUnderstandPage },
-    { view: 'jobs', label: copy.navFindJobs },
-    { view: 'apply', label: copy.navApply },
-    { view: 'verify', label: copy.navVerify },
-  ];
+  const workspaceLinks: Array<{ view: NavigationView; label: string }> = signedIn
+    ? [
+        { view: 'jobs', label: copy.navFindJobs },
+        { view: 'apply', label: copy.navApply },
+      ]
+    : [];
+  const whiteLabel = language === 'am' ? 'ነጭ' : 'White';
+  const darkLabel = language === 'am' ? 'ጨለማ' : 'Dark';
 
   const handleNav = (view: NavigationView) => {
     onNavigate(view);
@@ -27,18 +48,19 @@ export const AppHeader: React.FC<AppHeaderProps> = ({ currentView, onNavigate, l
   };
 
   return (
-    <header className="sticky top-0 z-40 border-b border-slate-200 bg-white/95 backdrop-blur high-contrast:border-white high-contrast:bg-black">
+    <header className="sticky top-0 z-40 border-b border-white/70 bg-white/75 shadow-[0_10px_40px_-24px_rgba(26,115,232,0.45)] backdrop-blur-xl high-contrast:border-white high-contrast:bg-black">
       <div className="mx-auto flex max-w-7xl items-center justify-between gap-8 px-4 py-3.5 sm:px-6 lg:px-8">
         {/* Zone 1: Single-element Brand Wordmark */}
         <button
           type="button"
           onClick={() => handleNav('landing')}
-          className="font-display text-xl font-bold tracking-tight text-[#001F3F] hover:text-[#0056B3] whitespace-nowrap shrink-0 high-contrast:text-yellow-300"
+          className="font-display text-2xl font-bold tracking-tight text-[#0e2a4a] hover:text-[#1a73e8] whitespace-nowrap shrink-0 high-contrast:text-yellow-300"
         >
-          AccessBridge
+          AllWays
         </button>
 
         {/* Zone 2: 5 concise single-line navigation links */}
+        {workspaceLinks.length > 0 && (
         <nav aria-label="Primary navigation" className="hidden md:flex items-center gap-6">
           {workspaceLinks.map((item) => {
             const isActive = currentView === item.view;
@@ -59,27 +81,70 @@ export const AppHeader: React.FC<AppHeaderProps> = ({ currentView, onNavigate, l
             );
           })}
         </nav>
+        )}
 
         {/* Zone 3: 1 primary action + mobile menu toggle */}
         <div className="flex items-center gap-3 shrink-0">
+          <div className="flex rounded-full border border-[#d5e6f7] bg-white/80 p-1 high-contrast:border-white high-contrast:bg-black" role="group" aria-label={language === 'am' ? 'የቀለም ሁኔታ' : 'Color mode'}>
+            <button
+              type="button"
+              aria-pressed={colorMode === 'light'}
+              onClick={() => onSetColorMode('light')}
+              className={`inline-flex items-center gap-1 rounded-full px-3 py-1.5 text-xs font-semibold ${
+                colorMode === 'light' ? 'bg-[#1a73e8] text-white' : 'text-[#0e2a4a] high-contrast:text-white'
+              }`}
+            >
+              <Sun className="h-3.5 w-3.5" aria-hidden="true" />
+              {whiteLabel}
+            </button>
+            <button
+              type="button"
+              aria-pressed={colorMode === 'dark'}
+              onClick={() => onSetColorMode('dark')}
+              className={`inline-flex items-center gap-1 rounded-full px-3 py-1.5 text-xs font-semibold ${
+                colorMode === 'dark' ? 'bg-[#1a73e8] text-white' : 'text-[#0e2a4a] high-contrast:text-white'
+              }`}
+            >
+              <Moon className="h-3.5 w-3.5" aria-hidden="true" />
+              {darkLabel}
+            </button>
+          </div>
+          <button
+            type="button"
+            onClick={() => {
+              onOpenLanguage();
+              setMobileMenuOpen(false);
+            }}
+            className="inline-flex items-center gap-1.5 rounded-lg border border-slate-300 px-3 py-2 text-sm font-semibold text-[#001F3F] hover:bg-slate-50 high-contrast:border-white high-contrast:text-white"
+          >
+            <Globe className="h-4 w-4" aria-hidden="true" />
+            {languageLabel}
+          </button>
           {currentView === 'landing' ? (
             <button
               type="button"
-              onClick={() => handleNav('onboarding')}
-              className="rounded-lg bg-[#001F3F] px-5 py-2.5 text-sm font-semibold text-white hover:bg-[#003366] transition-colors whitespace-nowrap shrink-0 high-contrast:bg-yellow-300 high-contrast:text-black"
+              onClick={() => {
+                onGetStarted();
+                setMobileMenuOpen(false);
+              }}
+              className="rounded-full bg-[#1a73e8] px-5 py-2.5 text-sm font-semibold text-white transition hover:-translate-y-0.5 whitespace-nowrap shrink-0 high-contrast:bg-yellow-300 high-contrast:text-black"
             >
               {copy.navGetStarted}
             </button>
           ) : (
             <button
               type="button"
-              onClick={() => handleNav('review')}
-              className="rounded-lg bg-[#001F3F] px-5 py-2.5 text-sm font-semibold text-white hover:bg-[#003366] transition-colors whitespace-nowrap shrink-0 high-contrast:bg-yellow-300 high-contrast:text-black"
+              onClick={() => {
+                onLogin();
+                setMobileMenuOpen(false);
+              }}
+              className="rounded-full bg-[#1a73e8] px-5 py-2.5 text-sm font-semibold text-white transition hover:-translate-y-0.5 whitespace-nowrap shrink-0 high-contrast:bg-yellow-300 high-contrast:text-black"
             >
-              {copy.navFinalReview}
+              {loginLabel}
             </button>
           )}
 
+          {workspaceLinks.length > 0 && (
           <button
             type="button"
             onClick={() => setMobileMenuOpen((prev) => !prev)}
@@ -89,11 +154,12 @@ export const AppHeader: React.FC<AppHeaderProps> = ({ currentView, onNavigate, l
           >
             {mobileMenuOpen ? <X className="h-5 w-5" aria-hidden="true" /> : <Menu className="h-5 w-5" aria-hidden="true" />}
           </button>
+          )}
         </div>
       </div>
 
       {/* Mobile Navigation Drawer */}
-      {mobileMenuOpen && (
+      {mobileMenuOpen && workspaceLinks.length > 0 && (
         <nav
           aria-label="Mobile primary navigation"
           className="md:hidden border-t border-slate-200 bg-white px-4 py-3 space-y-1 high-contrast:border-white high-contrast:bg-black"
@@ -116,13 +182,6 @@ export const AppHeader: React.FC<AppHeaderProps> = ({ currentView, onNavigate, l
               </button>
             );
           })}
-          <button
-            type="button"
-            onClick={() => handleNav('onboarding')}
-            className="block w-full text-left rounded-lg px-4 py-3 text-base font-medium text-[#0056B3] hover:bg-slate-100 high-contrast:text-cyan-300"
-          >
-            Accessibility Setup
-          </button>
         </nav>
       )}
     </header>
