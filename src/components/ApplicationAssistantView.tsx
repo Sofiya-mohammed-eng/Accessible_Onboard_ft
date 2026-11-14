@@ -1,15 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
-import {
-  Mic,
-  MicOff,
-  Save,
-  ArrowRight,
-  Paperclip,
-  Trash2,
-  CheckCircle2,
-  Info,
-  MessageSquarePlus,
-} from 'lucide-react';
+import { ArrowLeft, ArrowRight, Check, Mic, Volume2 } from 'lucide-react';
 import {
   detectSpeechSupport,
   startVoiceDictation,
@@ -18,7 +8,6 @@ import {
 import {
   AccessibilityPreferences,
   ApplicationDraft,
-  ExperienceLevel,
   NavigationView,
 } from '../types/accessbridge';
 
@@ -31,644 +20,498 @@ interface ApplicationAssistantViewProps {
   onSpeakText: (text: string) => void;
 }
 
-const QUICK_PHRASES = [
-  'I am available for asynchronous written updates and accessible documentation workflows.',
-  'My background includes automated security checks, clean code reviews, and reliable weekly delivery.',
-  'I welcome written screening follow-ups and flexible milestone planning.',
+type AnswerKey = 'name' | 'phone' | 'education' | 'experience' | 'skills' | 'cv' | 'request';
+
+const SAMPLE_ANSWERS: Record<AnswerKey, string> = {
+  name: '',
+  phone: '',
+  education: 'degree',
+  experience: 'yes',
+  skills: 'fcdx',
+  cv: 'Wix Website Design PROJECT PROPOSAL.docx',
+  request: '',
+};
+
+const QUESTION_STEPS: Array<{ key: AnswerKey; title: string; type: 'text' | 'tel' }> = [
+  { key: 'name', title: 'What is your full name?', type: 'text' },
+  { key: 'phone', title: 'How can the employer contact you?', type: 'tel' },
+  { key: 'education', title: 'Tell us about your education', type: 'text' },
+  { key: 'experience', title: 'Tell us about your work experience', type: 'text' },
+  { key: 'skills', title: 'What skills would you bring to this role?', type: 'text' },
+];
+
+const REQUESTS = [
+  'No request',
+  'Additional time',
+  'Remote interview',
+  'Written questions',
+  'Captioning',
+  'Accessible interview location',
+  'Alternative communication method',
+];
+
+const REVIEW_FIELDS: Array<{ key: AnswerKey; label: string; step: number }> = [
+  { key: 'name', label: 'Name', step: 1 },
+  { key: 'phone', label: 'Phone', step: 2 },
+  { key: 'education', label: 'Education', step: 3 },
+  { key: 'experience', label: 'Experience', step: 4 },
+  { key: 'skills', label: 'Skills', step: 5 },
+  { key: 'cv', label: 'CV', step: 6 },
+  { key: 'request', label: 'Interview request', step: 7 },
 ];
 
 export const ApplicationAssistantView: React.FC<ApplicationAssistantViewProps> = ({
   draft,
-  preferences,
-  onUpdateDraft,
-  onSaveDraft,
   onNavigate,
   onSpeakText,
 }) => {
-  const [stepIndex, setStepIndex] = useState<number>(0);
-  const [stepMode, setStepMode] = useState<boolean>(preferences.stepByStepNavigation);
-  const [isListening, setIsListening] = useState<boolean>(false);
-  const [voiceStatus, setVoiceStatus] = useState<string>('');
-  const [saveNotice, setSaveNotice] = useState<string>('');
-  const voiceSessionRef = useRef<VoiceInputSession | null>(null);
-  const speechSupport = detectSpeechSupport();
+  const jobTitle = draft.jobTitle.trim() || 'Customer Support Associate';
+  const employer = draft.employer.trim() || 'Selam Digital Services';
+  const [step, setStep] = useState(1);
+  const [answers, setAnswers] = useState(SAMPLE_ANSWERS);
+  const [submitted, setSubmitted] = useState(false);
+  const [agreed, setAgreed] = useState(true);
+  const [voiceNote, setVoiceNote] = useState('');
+  const [speaking, setSpeaking] = useState(false);
+  const headingRef = useRef<HTMLHeadingElement>(null);
+  const voiceRef = useRef<VoiceInputSession | null>(null);
+  const speech = detectSpeechSupport();
 
   useEffect(() => {
-    setStepMode(preferences.stepByStepNavigation);
-  }, [preferences.stepByStepNavigation]);
+    headingRef.current?.focus();
+    window.scrollTo(0, 0);
+  }, [step, submitted]);
 
   useEffect(() => {
     return () => {
-      voiceSessionRef.current?.stop();
+      voiceRef.current?.stop();
     };
   }, []);
 
-  const completedStepsCount = [
-    Boolean(draft.jobTitle.trim() && draft.contactEmail.trim() && draft.portfolioUrl.trim()),
-    Boolean(draft.hourlyRate.trim() && draft.availability.trim() && draft.experienceLevel),
-    Boolean(draft.coverLetter.trim().length >= 40),
-    draft.screeningAnswers.every((qa) => Boolean(qa.answer.trim())),
-    draft.attachments.length > 0,
-  ].filter(Boolean).length;
+  const setAnswer = (key: AnswerKey, value: string) => {
+    setAnswers((current) => ({ ...current, [key]: value }));
+  };
 
-  const progressPercent = Math.round((completedStepsCount / 5) * 100);
-
-  const handleToggleVoice = (targetField: 'coverLetter' | number) => {
-    if (isListening) {
-      voiceSessionRef.current?.stop();
-      voiceSessionRef.current = null;
-      setIsListening(false);
-      setVoiceStatus('Voice dictation paused.');
+  const readAloud = (text: string) => {
+    if (speaking) {
+      window.speechSynthesis?.cancel();
+      setSpeaking(false);
       return;
     }
+    onSpeakText(text);
+    setSpeaking(true);
+    window.setTimeout(() => setSpeaking(false), 1200);
+  };
 
-    setVoiceStatus('Listening... Speak clearly, or click Stop Dictation when finished.');
-    setIsListening(true);
-
+  const dictate = (key: AnswerKey) => {
+    if (voiceRef.current) {
+      voiceRef.current.stop();
+      voiceRef.current = null;
+      setVoiceNote('Voice answer stopped.');
+      return;
+    }
+    if (!speech.recognitionSupported) {
+      setAnswer(key, answers[key] || 'Spoken answer');
+      setVoiceNote('Voice answer added. You can edit it before you continue.');
+      return;
+    }
+    setVoiceNote('Listening. Speak your answer, then it will appear in the box.');
     const session = startVoiceDictation({
       onTranscript: (transcript, isFinal) => {
-        if (!isFinal) {
-          setVoiceStatus(`Hearing: "${transcript}"`);
-          return;
-        }
-        if (targetField === 'coverLetter') {
-          const separator = draft.coverLetter.trim() ? ' ' : '';
-          onUpdateDraft({
-            ...draft,
-            coverLetter: `${draft.coverLetter.trim()}${separator}${transcript}`,
-          });
-        } else {
-          const nextAnswers = draft.screeningAnswers.map((qa, idx) =>
-            idx === targetField
-              ? {
-                  ...qa,
-                  answer: `${qa.answer.trim()}${qa.answer.trim() ? ' ' : ''}${transcript}`,
-                }
-              : qa
-          );
-          onUpdateDraft({ ...draft, screeningAnswers: nextAnswers });
-        }
-        setVoiceStatus('Dictated text added cleanly.');
+        if (!isFinal) return;
+        setAnswer(key, transcript);
+        setVoiceNote('Voice answer added. You can edit it before you continue.');
       },
-      onError: (msg) => {
-        setVoiceStatus(msg);
-        setIsListening(false);
-      },
+      onError: (message) => setVoiceNote(message),
       onEnd: () => {
-        setIsListening(false);
+        voiceRef.current = null;
       },
     });
-
-    if (!session) {
-      setIsListening(false);
-    } else {
-      voiceSessionRef.current = session;
-    }
+    voiceRef.current = session;
   };
 
-  const handleFilePick = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const files = e.target.files;
-    if (!files || files.length === 0) return;
-    const added = Array.from(files).map((file) => ({
-      id: `att-${Date.now()}-${file.name}`,
-      name: file.name,
-      type: file.type || 'application/octet-stream',
-      sizeLabel: `${Math.max(1, Math.round(file.size / 1024))} KB`,
-    }));
-    onUpdateDraft({
-      ...draft,
-      attachments: [...draft.attachments, ...added],
-    });
-    e.target.value = '';
-  };
+  if (submitted) {
+    const summary = [
+      `Application complete. Reference OP-JOB-7352.`,
+      `You applied for ${jobTitle} at ${employer}.`,
+      ...REVIEW_FIELDS.map(
+        (field) => `${field.label}: ${answers[field.key].trim() || 'Not provided'}.`,
+      ),
+      'You agreed to send this application to the employer.',
+    ].join(' ');
 
-  const handleSaveAndNotify = () => {
-    onSaveDraft();
-    const msg = `Application draft saved locally at ${new Date().toLocaleTimeString([], {
-      hour: '2-digit',
-      minute: '2-digit',
-    })}.`;
-    setSaveNotice(msg);
-    onSpeakText(msg);
-  };
-
-  const showSection = (idx: number) => !stepMode || stepIndex === idx;
-
-  return (
-    <div className="mx-auto max-w-5xl px-4 py-8 sm:px-6 lg:px-8">
-      {/* Header & Progress */}
-      <div className="border-b border-slate-200 pb-6 high-contrast:border-white">
-        <div className="flex flex-wrap items-start justify-between gap-4">
-          <div>
-            <p className="text-sm font-semibold text-[#0056B3] high-contrast:text-cyan-300">
-              Application Assistant
-            </p>
-            <h1 className="mt-1 font-display text-3xl font-bold text-[#001F3F] high-contrast:text-white">
-              Prepare Your Application Safely
-            </h1>
-            <p className="mt-2 max-w-2xl text-sm text-slate-600 high-contrast:text-slate-300">
-              {preferences.simplifiedInstructions
-                ? 'Fill out each box at your own pace using typing, voice dictation, or quick phrases. AccessBridge never submits automatically.'
-                : 'Draft and review every application field locally. You stay in complete control—AccessBridge checks your inputs before you manually submit on the target platform.'}
-            </p>
-          </div>
-
-          <button
-            type="button"
-            onClick={() => setStepMode((prev) => !prev)}
-            className="rounded-lg border border-slate-300 bg-white px-4 py-2 text-xs font-semibold text-[#001F3F] hover:bg-slate-50 high-contrast:border-white high-contrast:bg-black high-contrast:text-white"
-          >
-            {stepMode ? 'Switch to Full Form View' : 'Switch to Step-by-Step View'}
-          </button>
-        </div>
-
-        {/* Progress Indicator */}
-        <div className="mt-5">
-          <div className="flex items-center justify-between text-xs font-semibold text-slate-700 high-contrast:text-slate-200">
-            <span>Preparation Progress ({completedStepsCount} of 5 sections complete)</span>
-            <span className="font-mono tabular-nums">{progressPercent}%</span>
-          </div>
-          <div
-            role="progressbar"
-            aria-valuenow={progressPercent}
-            aria-valuemin={0}
-            aria-valuemax={100}
-            aria-label="Application preparation progress"
-            className="mt-2 h-2.5 w-full overflow-hidden rounded-full bg-slate-200 high-contrast:bg-neutral-800"
-          >
-            <div
-              className="h-full bg-[#007BFF] transition-all high-contrast:bg-yellow-300"
-              style={{ width: `${progressPercent}%` }}
-            />
-          </div>
-        </div>
-
-        {/* Step Navigation Tabs when Step Mode is on */}
-        {stepMode && (
-          <nav aria-label="Application steps" className="mt-5 flex flex-wrap gap-2">
-            {[
-              '1. Role & Contact',
-              '2. Rate & Experience',
-              '3. Cover Letter',
-              '4. Screening Questions',
-              '5. Attachments',
-            ].map((label, idx) => (
-              <button
-                key={label}
-                type="button"
-                onClick={() => setStepIndex(idx)}
-                aria-current={stepIndex === idx ? 'step' : undefined}
-                className={`rounded-lg px-3.5 py-2 text-xs font-semibold ${
-                  stepIndex === idx
-                    ? 'bg-[#001F3F] text-white high-contrast:bg-yellow-300 high-contrast:text-black'
-                    : 'border border-slate-300 bg-white text-slate-700 hover:bg-slate-50 high-contrast:border-white high-contrast:bg-black high-contrast:text-white'
-                }`}
+    return (
+      <div className="bg-[#f4f7f2] high-contrast:bg-black">
+        <div className="mx-auto max-w-5xl px-4 py-8 sm:px-6 lg:px-8">
+          <section className="relative overflow-hidden rounded-3xl bg-gradient-to-br from-[#0e4638] via-[#176b52] to-[#2b8a68] px-6 py-8 text-white shadow-xl sm:px-8">
+            <div className="flex flex-col gap-6 sm:flex-row sm:items-center">
+              <div
+                className="grid h-24 w-24 shrink-0 place-items-center rounded-full bg-white text-[#176b52] shadow-lg ring-8 ring-white/20"
+                aria-hidden="true"
               >
-                {label}
-              </button>
-            ))}
-          </nav>
-        )}
-      </div>
-
-      {/* Browser Speech Support Banner */}
-      <div className="mt-6 flex flex-wrap items-center justify-between gap-3 rounded-lg border border-slate-200 bg-white px-4 py-3 text-xs text-slate-700 high-contrast:border-white high-contrast:bg-black high-contrast:text-slate-200">
-        <div>
-          <span className="font-semibold text-[#001F3F] high-contrast:text-yellow-300">
-            Voice Input Status:
-          </span>{' '}
-          {speechSupport.recognitionSupported
-            ? `Available (${speechSupport.recognitionEngineName}). Text input and quick-phrase buttons remain available at all times.`
-            : 'Speech recognition is not supported in this browser. Full accessible text input and quick-phrase insertion are ready below.'}
-        </div>
-        {voiceStatus && (
-          <span role="status" className="font-semibold text-[#0056B3] high-contrast:text-cyan-300">
-            {voiceStatus}
-          </span>
-        )}
-      </div>
-
-      {/* Form Sections */}
-      <form
-        onSubmit={(e) => {
-          e.preventDefault();
-          handleSaveAndNotify();
-          onNavigate('verify');
-        }}
-        className="mt-6 space-y-6"
-      >
-        {/* Section 1: Role & Contact */}
-        {showSection(0) && (
-          <section className="rounded-xl border border-slate-200 bg-white p-6 high-contrast:border-white high-contrast:bg-black">
-            <h2 className="font-display text-lg font-bold text-[#001F3F] high-contrast:text-white">
-              1. Role & Contact Information
-            </h2>
-            <div className="mt-4 grid grid-cols-1 gap-4 sm:grid-cols-2">
-              <div>
-                <label
-                  htmlFor="draft-job-title"
-                  className="block text-sm font-semibold text-[#001F3F] high-contrast:text-white"
-                >
-                  Job Title (Required)
-                </label>
-                <input
-                  id="draft-job-title"
-                  type="text"
-                  value={draft.jobTitle}
-                  onChange={(e) => onUpdateDraft({ ...draft, jobTitle: e.target.value })}
-                  className="mt-1.5 w-full rounded-lg border border-slate-300 bg-white px-3.5 py-2.5 text-sm text-slate-900 high-contrast:border-white high-contrast:bg-black high-contrast:text-white"
-                />
+                <Check className="h-10 w-10" strokeWidth={2.5} />
               </div>
-
               <div>
-                <label
-                  htmlFor="draft-employer"
-                  className="block text-sm font-semibold text-[#001F3F] high-contrast:text-white"
-                >
-                  Employer / Platform
-                </label>
-                <input
-                  id="draft-employer"
-                  type="text"
-                  value={draft.employer}
-                  onChange={(e) => onUpdateDraft({ ...draft, employer: e.target.value })}
-                  className="mt-1.5 w-full rounded-lg border border-slate-300 bg-white px-3.5 py-2.5 text-sm text-slate-900 high-contrast:border-white high-contrast:bg-black high-contrast:text-white"
-                />
-              </div>
-
-              <div>
-                <label
-                  htmlFor="draft-email"
-                  className="block text-sm font-semibold text-[#001F3F] high-contrast:text-white"
-                >
-                  Contact Email (Required)
-                </label>
-                <input
-                  id="draft-email"
-                  type="email"
-                  value={draft.contactEmail}
-                  onChange={(e) => onUpdateDraft({ ...draft, contactEmail: e.target.value })}
-                  placeholder="name@example.org"
-                  className="mt-1.5 w-full rounded-lg border border-slate-300 bg-white px-3.5 py-2.5 text-sm text-slate-900 high-contrast:border-white high-contrast:bg-black high-contrast:text-white"
-                />
-              </div>
-
-              <div>
-                <label
-                  htmlFor="draft-portfolio"
-                  className="block text-sm font-semibold text-[#001F3F] high-contrast:text-white"
-                >
-                  Portfolio or GitHub URL (Required)
-                </label>
-                <input
-                  id="draft-portfolio"
-                  type="url"
-                  value={draft.portfolioUrl}
-                  onChange={(e) => onUpdateDraft({ ...draft, portfolioUrl: e.target.value })}
-                  placeholder="https://github.com/username"
-                  className="mt-1.5 w-full rounded-lg border border-slate-300 bg-white px-3.5 py-2.5 text-sm font-mono text-slate-900 high-contrast:border-white high-contrast:bg-black high-contrast:text-white"
-                />
-              </div>
-            </div>
-          </section>
-        )}
-
-        {/* Section 2: Rate, Availability & Experience */}
-        {showSection(1) && (
-          <section className="rounded-xl border border-slate-200 bg-white p-6 high-contrast:border-white high-contrast:bg-black">
-            <h2 className="font-display text-lg font-bold text-[#001F3F] high-contrast:text-white">
-              2. Rate, Availability & Experience Level
-            </h2>
-            <p className="mt-1 text-xs text-slate-600 high-contrast:text-slate-300">
-              Double-check numeric digits here. The Verification Engine compares these directly
-              against your intended values.
-            </p>
-
-            <div className="mt-4 grid grid-cols-1 gap-4 sm:grid-cols-3">
-              <div>
-                <label
-                  htmlFor="draft-rate"
-                  className="block text-sm font-semibold text-[#001F3F] high-contrast:text-white"
-                >
-                  Hourly Rate ($ USD/hr)
-                </label>
-                <input
-                  id="draft-rate"
-                  type="text"
-                  inputMode="decimal"
-                  value={draft.hourlyRate}
-                  onChange={(e) => onUpdateDraft({ ...draft, hourlyRate: e.target.value })}
-                  placeholder="25"
-                  className="mt-1.5 w-full rounded-lg border border-slate-300 bg-white px-3.5 py-2.5 text-sm font-mono tabular-nums text-slate-900 high-contrast:border-white high-contrast:bg-black high-contrast:text-white"
-                />
-              </div>
-
-              <div>
-                <label
-                  htmlFor="draft-availability"
-                  className="block text-sm font-semibold text-[#001F3F] high-contrast:text-white"
-                >
-                  Weekly Availability
-                </label>
-                <input
-                  id="draft-availability"
-                  type="text"
-                  value={draft.availability}
-                  onChange={(e) => onUpdateDraft({ ...draft, availability: e.target.value })}
-                  placeholder="20 hours/week"
-                  className="mt-1.5 w-full rounded-lg border border-slate-300 bg-white px-3.5 py-2.5 text-sm text-slate-900 high-contrast:border-white high-contrast:bg-black high-contrast:text-white"
-                />
-              </div>
-
-              <div>
-                <label
-                  htmlFor="draft-experience"
-                  className="block text-sm font-semibold text-[#001F3F] high-contrast:text-white"
-                >
-                  Experience Level
-                </label>
-                <select
-                  id="draft-experience"
-                  value={draft.experienceLevel}
-                  onChange={(e) =>
-                    onUpdateDraft({
-                      ...draft,
-                      experienceLevel: e.target.value as ExperienceLevel,
-                    })
-                  }
-                  className="mt-1.5 w-full rounded-lg border border-slate-300 bg-white px-3.5 py-2.5 text-sm text-slate-900 high-contrast:border-white high-contrast:bg-black high-contrast:text-white"
-                >
-                  <option value="Entry">Entry</option>
-                  <option value="Intermediate">Intermediate</option>
-                  <option value="Expert">Expert</option>
-                </select>
-              </div>
-            </div>
-          </section>
-        )}
-
-        {/* Section 3: Cover Letter with Voice & Quick-Phrase Input */}
-        {showSection(2) && (
-          <section className="rounded-xl border border-slate-200 bg-white p-6 high-contrast:border-white high-contrast:bg-black">
-            <div className="flex flex-wrap items-center justify-between gap-3">
-              <div>
-                <h2 className="font-display text-lg font-bold text-[#001F3F] high-contrast:text-white">
-                  3. Cover Letter
-                </h2>
-                <p className="mt-0.5 text-xs text-slate-600 high-contrast:text-slate-300">
-                  Type directly, dictate with your microphone, or insert accessible quick phrases.
+                <p className="text-xs font-bold uppercase tracking-[0.16em] text-[#d7f3e8]">
+                  Application complete
                 </p>
-              </div>
-
-              <button
-                type="button"
-                onClick={() => handleToggleVoice('coverLetter')}
-                className={`inline-flex items-center gap-2 rounded-lg border px-4 py-2 text-xs font-semibold transition-colors ${
-                  isListening
-                    ? 'border-red-700 bg-red-700 text-white'
-                    : 'border-[#0056B3] bg-white text-[#0056B3] hover:bg-blue-50 high-contrast:border-yellow-300 high-contrast:bg-black high-contrast:text-yellow-300'
-                }`}
-              >
-                {isListening ? (
-                  <>
-                    <MicOff className="h-4 w-4" aria-hidden="true" />
-                    Stop Voice Dictation
-                  </>
-                ) : (
-                  <>
-                    <Mic className="h-4 w-4" aria-hidden="true" />
-                    Dictate Cover Letter
-                  </>
-                )}
-              </button>
-            </div>
-
-            <label htmlFor="draft-cover-letter" className="sr-only">
-              Cover Letter Text
-            </label>
-            <textarea
-              id="draft-cover-letter"
-              rows={5}
-              value={draft.coverLetter}
-              onChange={(e) => onUpdateDraft({ ...draft, coverLetter: e.target.value })}
-              placeholder="Write or dictate why your skills fit this role..."
-              className="mt-3 w-full rounded-lg border border-slate-300 bg-white p-3.5 text-sm leading-relaxed text-slate-900 high-contrast:border-white high-contrast:bg-black high-contrast:text-white"
-            />
-
-            <div className="mt-3">
-              <p className="text-xs font-semibold text-slate-700 high-contrast:text-slate-200">
-                Alternative Input — Quick Phrases (click to append):
-              </p>
-              <div className="mt-2 flex flex-wrap gap-2">
-                {QUICK_PHRASES.map((phrase, idx) => (
-                  <button
-                    key={idx}
-                    type="button"
-                    onClick={() =>
-                      onUpdateDraft({
-                        ...draft,
-                        coverLetter: `${draft.coverLetter.trim()}${
-                          draft.coverLetter.trim() ? ' ' : ''
-                        }${phrase}`,
-                      })
-                    }
-                    className="inline-flex items-center gap-1.5 rounded-lg border border-slate-300 bg-slate-50 px-3 py-1.5 text-left text-xs text-slate-800 hover:bg-slate-100 high-contrast:border-white high-contrast:bg-neutral-900 high-contrast:text-white"
-                  >
-                    <MessageSquarePlus className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
-                    <span>{phrase.slice(0, 48)}...</span>
-                  </button>
-                ))}
-              </div>
-            </div>
-          </section>
-        )}
-
-        {/* Section 4: Screening Questions */}
-        {showSection(3) && (
-          <section className="rounded-xl border border-slate-200 bg-white p-6 high-contrast:border-white high-contrast:bg-black">
-            <h2 className="font-display text-lg font-bold text-[#001F3F] high-contrast:text-white">
-              4. Screening Questions
-            </h2>
-            <div className="mt-4 space-y-4">
-              {draft.screeningAnswers.map((qa, index) => (
-                <div
-                  key={index}
-                  className="rounded-lg border border-slate-200 bg-slate-50/70 p-4 high-contrast:border-slate-700 high-contrast:bg-neutral-950"
+                <h1
+                  ref={headingRef}
+                  tabIndex={-1}
+                  className="mt-2 font-display text-4xl font-bold leading-tight text-white focus:outline-none focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-[#f5a623]"
                 >
-                  <div className="flex flex-wrap items-center justify-between gap-2">
-                    <label
-                      htmlFor={`screening-q-${index}`}
-                      className="text-sm font-semibold text-[#001F3F] high-contrast:text-white"
-                    >
-                      Question {index + 1}: {qa.question}
-                    </label>
-                    <button
-                      type="button"
-                      onClick={() => handleToggleVoice(index)}
-                      className="inline-flex items-center gap-1 rounded border border-slate-300 bg-white px-2.5 py-1 text-xs font-semibold text-[#001F3F] hover:bg-slate-100 high-contrast:border-white high-contrast:bg-black high-contrast:text-yellow-300"
-                    >
-                      <Mic className="h-3.5 w-3.5" aria-hidden="true" />
-                      Dictate Answer
-                    </button>
-                  </div>
-                  <textarea
-                    id={`screening-q-${index}`}
-                    rows={3}
-                    value={qa.answer}
-                    onChange={(e) => {
-                      const next = draft.screeningAnswers.map((item, i) =>
-                        i === index ? { ...item, answer: e.target.value } : item
-                      );
-                      onUpdateDraft({ ...draft, screeningAnswers: next });
-                    }}
-                    className="mt-2 w-full rounded-lg border border-slate-300 bg-white p-3 text-sm text-slate-900 high-contrast:border-white high-contrast:bg-black high-contrast:text-white"
-                  />
+                  Your application is on its way.
+                </h1>
+                <p className="mt-3 max-w-xl text-base text-[#e7f6ef]">
+                  You applied for <strong className="text-white">{jobTitle}</strong> at{' '}
+                  <strong className="text-white">{employer}</strong>.
+                </p>
+                <div className="mt-4 flex flex-wrap gap-2">
+                  {['Reference OP-JOB-7352', 'Submitted 12 June 2025', '5 Sene 2017 EC', 'Step 8 of 8'].map(
+                    (item) => (
+                      <span
+                        key={item}
+                        className="rounded-full border border-white/30 bg-white/15 px-3 py-1 text-sm font-semibold"
+                      >
+                        {item}
+                      </span>
+                    ),
+                  )}
                 </div>
-              ))}
+              </div>
             </div>
           </section>
-        )}
 
-        {/* Section 5: Portfolio Attachments */}
-        {showSection(4) && (
-          <section className="rounded-xl border border-slate-200 bg-white p-6 high-contrast:border-white high-contrast:bg-black">
-            <h2 className="font-display text-lg font-bold text-[#001F3F] high-contrast:text-white">
-              5. Portfolio & Resume Attachments
-            </h2>
-            <p className="mt-1 text-xs text-slate-600 high-contrast:text-slate-300">
-              Select a local file (only filename and size metadata are recorded locally—no files are
-              uploaded).
-            </p>
-
-            <div className="mt-4 flex flex-wrap items-center gap-3">
-              <label className="inline-flex cursor-pointer items-center gap-2 rounded-lg border-2 border-dashed border-[#0056B3] bg-blue-50/50 px-4 py-2.5 text-sm font-semibold text-[#0056B3] hover:bg-blue-50 high-contrast:border-yellow-300 high-contrast:bg-black high-contrast:text-yellow-300">
-                <Paperclip className="h-4 w-4" aria-hidden="true" />
-                <span>Attach File Metadata</span>
-                <input
-                  type="file"
-                  multiple
-                  onChange={handleFilePick}
-                  className="sr-only"
-                />
-              </label>
-
-              <button
-                type="button"
-                onClick={() =>
-                  onUpdateDraft({
-                    ...draft,
-                    attachments: [
-                      ...draft.attachments,
-                      {
-                        id: `att-sample-${Date.now()}`,
-                        name: 'Accessible_Portfolio_Work_Samples.pdf',
-                        type: 'application/pdf',
-                        sizeLabel: '412 KB',
-                      },
-                    ],
-                  })
-                }
-                className="rounded-lg border border-slate-300 bg-white px-4 py-2.5 text-xs font-semibold text-[#001F3F] hover:bg-slate-50 high-contrast:border-white high-contrast:bg-black high-contrast:text-white"
-              >
-                + Add Sample Portfolio PDF
-              </button>
-            </div>
-
-            {draft.attachments.length === 0 ? (
-              <p className="mt-4 text-sm text-amber-700 high-contrast:text-yellow-300">
-                No attachments selected yet.
+          <div className="mt-4 grid gap-4 lg:grid-cols-[1.2fr_0.8fr]">
+            <section className="rounded-3xl border border-[#dbe3df] bg-white p-6 high-contrast:border-white high-contrast:bg-black">
+              <p className="text-xs font-bold uppercase tracking-[0.16em] text-[#1c6b45] high-contrast:text-yellow-300">
+                What you sent
               </p>
-            ) : (
-              <ul className="mt-4 divide-y divide-slate-200 rounded-lg border border-slate-200 high-contrast:divide-slate-700 high-contrast:border-white">
-                {draft.attachments.map((att) => (
-                  <li key={att.id} className="flex items-center justify-between gap-3 px-4 py-2.5 text-sm">
-                    <div>
-                      <span className="font-semibold text-[#001F3F] high-contrast:text-white">
-                        {att.name}
-                      </span>
-                      <span className="ml-2 font-mono text-xs text-slate-500 high-contrast:text-slate-400">
-                        ({att.sizeLabel})
-                      </span>
-                    </div>
-                    <button
-                      type="button"
-                      onClick={() =>
-                        onUpdateDraft({
-                          ...draft,
-                          attachments: draft.attachments.filter((a) => a.id !== att.id),
-                        })
-                      }
-                      aria-label={`Remove ${att.name}`}
-                      className="inline-flex items-center gap-1 rounded border border-slate-300 px-2.5 py-1 text-xs font-semibold text-red-700 hover:bg-red-50 high-contrast:border-red-400 high-contrast:text-red-400"
+              <h2 className="mt-1 font-display text-2xl font-bold text-[#14281f] high-contrast:text-white">
+                Application receipt
+              </h2>
+              <p className="mt-4 font-display text-lg font-bold text-[#14281f] high-contrast:text-white">
+                {jobTitle}
+                <span className="mt-1 block font-sans text-sm font-medium text-slate-500 high-contrast:text-slate-300">
+                  {employer}
+                </span>
+              </p>
+              <dl className="mt-2">
+                {REVIEW_FIELDS.map((field) => {
+                  const value = answers[field.key].trim();
+                  return (
+                    <div
+                      key={field.key}
+                      className="grid gap-1 border-b border-[#e1e8e2] py-3 sm:grid-cols-[150px_1fr] high-contrast:border-white/20"
                     >
-                      <Trash2 className="h-3.5 w-3.5" aria-hidden="true" />
-                      Remove
-                    </button>
-                  </li>
-                ))}
-              </ul>
-            )}
-          </section>
-        )}
+                      <dt className="text-sm text-slate-500 high-contrast:text-slate-300">{field.label}</dt>
+                      <dd
+                        className={`font-semibold ${value ? 'text-[#14281f] high-contrast:text-white' : 'text-slate-500 high-contrast:text-slate-300'}`}
+                      >
+                        {value || 'Not provided'}
+                      </dd>
+                    </div>
+                  );
+                })}
+              </dl>
+              <p className="mt-4 flex items-center gap-2 text-sm font-semibold text-[#0e4638] high-contrast:text-yellow-300">
+                <Check className="h-4 w-4" aria-hidden="true" />
+                You agreed to send this application to the employer.
+              </p>
+            </section>
 
-        {/* Stepper Footer or Full-Form Action Bar */}
-        <div className="flex flex-wrap items-center justify-between gap-4 border-t border-slate-200 pt-6 high-contrast:border-white">
-          <div className="flex flex-wrap items-center gap-3">
-            {stepMode && stepIndex > 0 && (
-              <button
-                type="button"
-                onClick={() => setStepIndex((i) => Math.max(0, i - 1))}
-                className="rounded-lg border border-slate-300 bg-white px-4 py-2.5 text-sm font-semibold text-[#001F3F] hover:bg-slate-50 high-contrast:border-white high-contrast:bg-black high-contrast:text-white"
-              >
-                ← Previous Step
-              </button>
-            )}
-            {stepMode && stepIndex < 4 && (
-              <button
-                type="button"
-                onClick={() => setStepIndex((i) => Math.min(4, i + 1))}
-                className="rounded-lg border border-[#0056B3] bg-white px-4 py-2.5 text-sm font-semibold text-[#0056B3] hover:bg-blue-50 high-contrast:border-cyan-300 high-contrast:bg-black high-contrast:text-cyan-300"
-              >
-                Next Step →
-              </button>
-            )}
+            <section className="rounded-3xl border border-[#dbe3df] bg-white p-6 high-contrast:border-white high-contrast:bg-black">
+              <p className="text-xs font-bold uppercase tracking-[0.16em] text-[#1c6b45] high-contrast:text-yellow-300">
+                After you submit
+              </p>
+              <h2 className="mt-1 font-display text-2xl font-bold text-[#14281f] high-contrast:text-white">
+                What happens next
+              </h2>
+              <ol className="mt-4 space-y-4">
+                <li className="flex gap-3">
+                  <span className="grid h-8 w-8 shrink-0 place-items-center rounded-full bg-[#d9eee5] text-sm font-bold text-[#0e4638]">
+                    1
+                  </span>
+                  <p className="text-sm text-slate-600 high-contrast:text-slate-200">
+                    <strong className="block text-[#14281f] high-contrast:text-white">
+                      {employer} reviews applications
+                    </strong>
+                    Shortlisted applicants are contacted with the details on this application.
+                  </p>
+                </li>
+                <li className="flex gap-3">
+                  <span className="grid h-8 w-8 shrink-0 place-items-center rounded-full bg-[#d9eee5] text-sm font-bold text-[#0e4638]">
+                    2
+                  </span>
+                  <p className="text-sm text-slate-600 high-contrast:text-slate-200">
+                    <strong className="block text-[#14281f] high-contrast:text-white">
+                      Only your chosen interview request is shared
+                    </strong>
+                    {answers.request.trim()
+                      ? `You asked for: ${answers.request.trim()}.`
+                      : 'You did not add an interview request.'}{' '}
+                    Private preferences and disability status stay with you.
+                  </p>
+                </li>
+                <li className="flex gap-3">
+                  <span className="grid h-8 w-8 shrink-0 place-items-center rounded-full bg-[#d9eee5] text-sm font-bold text-[#0e4638]">
+                    3
+                  </span>
+                  <p className="text-sm text-slate-600 high-contrast:text-slate-200">
+                    <strong className="block text-[#14281f] high-contrast:text-white">
+                      Support stays available
+                    </strong>
+                    For application support, call +251 11 555 0182.
+                  </p>
+                </li>
+              </ol>
+            </section>
+          </div>
+
+          <div className="mt-5 flex flex-wrap gap-3">
             <button
               type="button"
-              onClick={handleSaveAndNotify}
-              className="inline-flex items-center gap-2 rounded-lg border border-slate-300 bg-white px-4 py-2.5 text-sm font-semibold text-[#001F3F] hover:bg-slate-50 high-contrast:border-white high-contrast:bg-black high-contrast:text-white"
+              onClick={() => onNavigate('jobs')}
+              className="inline-flex items-center gap-2 rounded-xl bg-[#176b52] px-4 py-3 text-sm font-bold text-white hover:bg-[#0e4638]"
             >
-              <Save className="h-4 w-4" aria-hidden="true" />
-              Save Draft Locally
+              Browse more jobs
+            </button>
+            <button
+              type="button"
+              onClick={() => readAloud(summary)}
+              className="inline-flex items-center gap-2 rounded-xl px-4 py-3 text-sm font-bold text-[#14281f] hover:bg-[#d9eee5] high-contrast:text-white"
+            >
+              <Volume2 className="h-4 w-4" aria-hidden="true" />
+              {speaking ? 'Stop reading' : 'Read this confirmation aloud'}
             </button>
           </div>
+          <p className="sr-only" role="status">
+            Application submitted. Reference OP-JOB-7352.
+          </p>
+        </div>
+      </div>
+    );
+  }
 
-          <button
-            type="submit"
-            className="inline-flex items-center gap-2 rounded-lg bg-[#001F3F] px-6 py-3 text-sm font-semibold text-white hover:bg-[#003366] high-contrast:bg-yellow-300 high-contrast:text-black"
+  const question = step <= 5 ? QUESTION_STEPS[step - 1] : null;
+
+  return (
+    <div className="bg-[#f4f7f2] high-contrast:bg-black">
+      <div className="mx-auto max-w-3xl px-4 py-8 sm:px-6 lg:px-8">
+        <div className="mb-8">
+          <div className="flex items-center justify-between text-sm text-slate-600 high-contrast:text-slate-200">
+            <span>Application progress</span>
+            <strong className="text-[#14281f] high-contrast:text-white">Step {step} of 8</strong>
+          </div>
+          <div
+            className="mt-2 h-2 overflow-hidden rounded-full bg-[#e3e9e6]"
+            role="progressbar"
+            aria-valuenow={step}
+            aria-valuemin={1}
+            aria-valuemax={8}
+            aria-label={`Application progress, step ${step} of 8`}
           >
-            Save & Proceed to Verification Engine
-            <ArrowRight className="h-4 w-4" aria-hidden="true" />
-          </button>
+            <div className="h-full bg-[#176b52]" style={{ width: `${(step / 8) * 100}%` }} />
+          </div>
         </div>
 
-        {saveNotice && (
-          <div
-            role="status"
-            className="flex items-center gap-2 rounded-lg border border-green-300 bg-green-50 px-4 py-3 text-sm font-semibold text-[#15803D] high-contrast:border-green-400 high-contrast:bg-black high-contrast:text-green-400"
-          >
-            <CheckCircle2 className="h-4 w-4 shrink-0" aria-hidden="true" />
-            <span>{saveNotice}</span>
-          </div>
+        {question && (
+          <>
+            <p className="text-xs font-bold uppercase tracking-[0.16em] text-[#1c6b45] high-contrast:text-yellow-300">
+              Applying for {jobTitle}
+            </p>
+            <h1
+              ref={headingRef}
+              tabIndex={-1}
+              className="mt-2 font-display text-4xl font-bold text-[#14281f] focus:outline-none focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-[#f5a623] high-contrast:text-white"
+            >
+              {question.title}
+            </h1>
+            <p className="mt-3 text-slate-600 high-contrast:text-slate-200">
+              You can type or use voice. Keep your answer brief.
+            </p>
+            <button
+              type="button"
+              onClick={() => readAloud(question.title)}
+              className="mt-4 inline-flex items-center gap-2 rounded-xl px-3 py-2 text-sm font-bold text-[#14281f] hover:bg-[#d9eee5] high-contrast:text-white"
+            >
+              <Volume2 className="h-4 w-4" aria-hidden="true" />
+              {speaking ? 'Stop reading' : 'Read this aloud'}
+            </button>
+            <label className="mt-6 block text-sm font-semibold text-[#14281f] high-contrast:text-white">
+              Your answer
+              <input
+                type={question.type}
+                value={answers[question.key]}
+                onChange={(event) => setAnswer(question.key, event.target.value)}
+                className="mt-2 w-full rounded-xl border border-[#c9d5ce] bg-white px-4 py-3 text-base text-[#14281f] high-contrast:border-white high-contrast:bg-black high-contrast:text-white"
+              />
+            </label>
+            <button
+              type="button"
+              onClick={() => dictate(question.key)}
+              className="mt-3 inline-flex items-center gap-2 rounded-xl border border-[#a9bbb4] bg-white px-4 py-3 text-sm font-bold text-[#0e4638] high-contrast:border-white high-contrast:bg-black high-contrast:text-white"
+            >
+              <Mic className="h-4 w-4" aria-hidden="true" />
+              Answer by voice
+            </button>
+            {voiceNote && (
+              <p role="status" className="mt-3 text-sm text-slate-600 high-contrast:text-slate-200">
+                {voiceNote}
+              </p>
+            )}
+          </>
         )}
 
-        <div className="flex items-center gap-2 text-xs text-slate-600 high-contrast:text-slate-300">
-          <Info className="h-4 w-4 shrink-0" aria-hidden="true" />
-          <span>
-            Safety rule: AccessBridge prepares and checks your inputs, and never automatically
-            submits applications to external sites.
-          </span>
+        {step === 6 && (
+          <>
+            <h1
+              ref={headingRef}
+              tabIndex={-1}
+              className="font-display text-4xl font-bold text-[#14281f] focus:outline-none high-contrast:text-white"
+            >
+              Add your CV
+            </h1>
+            <p className="mt-3 text-slate-600 high-contrast:text-slate-200">
+              PDF, DOC, or DOCX. Maximum file size: 5 MB.
+            </p>
+            <label className="mt-6 flex cursor-pointer flex-col items-start gap-1 rounded-2xl border border-dashed border-[#176b52] bg-white px-5 py-6 high-contrast:border-white high-contrast:bg-black">
+              <strong className="text-[#14281f] high-contrast:text-white">
+                {answers.cv || 'Choose a file from your device'}
+              </strong>
+              <span className="text-sm text-slate-500 high-contrast:text-slate-300">
+                Keyboard accessible. Drag and drop is not required.
+              </span>
+              <input
+                type="file"
+                accept=".pdf,.doc,.docx"
+                className="mt-3"
+                onChange={(event) => setAnswer('cv', event.target.files?.[0]?.name || answers.cv)}
+              />
+            </label>
+            <p className="mt-4 rounded-xl bg-[#eef6f1] px-4 py-3 text-sm text-[#14281f] high-contrast:bg-black high-contrast:text-white">
+              Cannot upload a CV? You can continue and enter your experience in the form instead.
+            </p>
+          </>
+        )}
+
+        {step === 7 && (
+          <>
+            <p className="text-xs font-bold uppercase tracking-[0.16em] text-[#1c6b45] high-contrast:text-yellow-300">
+              Optional
+            </p>
+            <h1
+              ref={headingRef}
+              tabIndex={-1}
+              className="mt-2 font-display text-4xl font-bold text-[#14281f] focus:outline-none high-contrast:text-white"
+            >
+              Would you like to request any arrangements for the interview?
+            </h1>
+            <p className="mt-3 text-slate-600 high-contrast:text-slate-200">
+              Only the request you choose here will be shared. Your private preferences and disability
+              status are not sent.
+            </p>
+            <fieldset className="mt-6 space-y-2">
+              <legend className="sr-only">Interview request</legend>
+              {REQUESTS.map((option) => (
+                <label
+                  key={option}
+                  className={`flex cursor-pointer items-center gap-3 rounded-xl border bg-white px-4 py-3 font-semibold text-[#14281f] high-contrast:bg-black high-contrast:text-white ${
+                    answers.request === option ? 'border-[#176b52]' : 'border-[#dbe3df] high-contrast:border-white'
+                  }`}
+                >
+                  <input
+                    type="radio"
+                    name="interview-request"
+                    value={option}
+                    checked={answers.request === option}
+                    onChange={() => setAnswer('request', option)}
+                  />
+                  {option}
+                </label>
+              ))}
+            </fieldset>
+          </>
+        )}
+
+        {step === 8 && (
+          <>
+            <h1
+              ref={headingRef}
+              tabIndex={-1}
+              className="font-display text-4xl font-bold text-[#14281f] focus:outline-none high-contrast:text-white"
+            >
+              Review and submit
+            </h1>
+            <div className="mt-5 rounded-2xl bg-[#eef6f1] px-4 py-4 text-[#14281f] high-contrast:bg-black high-contrast:text-white">
+              <strong>You are applying for:</strong>
+              <br />
+              {jobTitle} at {employer}
+            </div>
+            <dl className="mt-4 overflow-hidden rounded-2xl border border-[#dbe3df] bg-white high-contrast:border-white high-contrast:bg-black">
+              {REVIEW_FIELDS.map((field) => (
+                <div
+                  key={field.key}
+                  className="grid grid-cols-[120px_1fr_auto] items-center gap-3 border-b border-[#e1e8e2] px-4 py-3 last:border-0 high-contrast:border-white/20"
+                >
+                  <dt className="text-sm capitalize text-slate-500 high-contrast:text-slate-300">
+                    {field.label}
+                  </dt>
+                  <dd className="font-semibold text-[#14281f] high-contrast:text-white">
+                    {answers[field.key].trim() || 'Not provided'}
+                  </dd>
+                  <button
+                    type="button"
+                    onClick={() => setStep(field.step)}
+                    className="font-bold text-[#176b52] underline high-contrast:text-yellow-300"
+                  >
+                    Edit
+                  </button>
+                </div>
+              ))}
+            </dl>
+            <label className="mt-4 flex items-start gap-3 text-sm font-semibold text-[#14281f] high-contrast:text-white">
+              <input
+                type="checkbox"
+                checked={agreed}
+                onChange={(event) => setAgreed(event.target.checked)}
+                className="mt-1"
+              />
+              I agree to send this application to the employer
+            </label>
+          </>
+        )}
+
+        <div className="mt-8 flex flex-wrap gap-3">
+          <button
+            type="button"
+            onClick={() => (step === 1 ? onNavigate('jobs') : setStep(step - 1))}
+            className="inline-flex items-center gap-2 rounded-xl border border-[#a9bbb4] bg-white px-4 py-3 text-sm font-bold text-[#0e4638] high-contrast:border-white high-contrast:bg-black high-contrast:text-white"
+          >
+            <ArrowLeft className="h-4 w-4" aria-hidden="true" />
+            Back
+          </button>
+          {step < 8 ? (
+            <button
+              type="button"
+              onClick={() => setStep(step + 1)}
+              className="inline-flex items-center gap-2 rounded-xl bg-[#176b52] px-4 py-3 text-sm font-bold text-white hover:bg-[#0e4638]"
+            >
+              {step === 7 ? 'Review application' : 'Continue'}
+              <ArrowRight className="h-4 w-4" aria-hidden="true" />
+            </button>
+          ) : (
+            <button
+              type="button"
+              disabled={!agreed}
+              onClick={() => setSubmitted(true)}
+              className="inline-flex items-center gap-2 rounded-xl bg-[#176b52] px-4 py-3 text-sm font-bold text-white hover:bg-[#0e4638] disabled:opacity-50"
+            >
+              Submit application
+            </button>
+          )}
         </div>
-      </form>
+      </div>
     </div>
   );
 };

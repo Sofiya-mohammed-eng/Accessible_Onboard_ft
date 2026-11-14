@@ -81,6 +81,34 @@ html.magnifier-active main {
   zoom: 1.08;
 }
 
+@keyframes career-float-a {
+  0%,
+  100% {
+    transform: translateY(0) rotate(-7deg);
+  }
+  50% {
+    transform: translateY(-12px) rotate(-5deg);
+  }
+}
+
+@keyframes career-float-b {
+  0%,
+  100% {
+    transform: translateY(0) rotate(6deg);
+  }
+  50% {
+    transform: translateY(10px) rotate(4deg);
+  }
+}
+
+.career-card-a {
+  animation: career-float-a 7.5s ease-in-out infinite;
+}
+
+.career-card-b {
+  animation: career-float-b 8.5s ease-in-out infinite;
+}
+
 /* Skip link styling */
 .skip-link {
   position: fixed;
