@@ -142,7 +142,7 @@ export function interpretAccount(text: string, phrases: {
     clearName: false,
     signIn: includes(phrases.signIn),
     register: includes(phrases.register),
-    yes: includes(phrases.yes) && !correction,
+    yes: (includes(phrases.yes) || (/ትክክል/.test(raw) && !raw.includes('አይ')) || (/\bcorrect\b/i.test(lower) && !/\bnot\b/i.test(lower))) && !correction,
     correction,
   };
 

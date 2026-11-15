@@ -166,7 +166,8 @@ async function speakWithAudio(text: string, lang: string, rate: number, token: n
   const voiceCode = lang.toLowerCase().startsWith('am') ? 'am' : 'en';
   for (const part of chunkText(text)) {
     if (token !== speechToken) return false;
-    const url = `/api/tts?lang=${voiceCode}&text=${encodeURIComponent(part)}`;
+    const slow = voiceCode === 'am' ? '1' : '0';
+    const url = `/api/tts?lang=${voiceCode}&slow=${slow}&text=${encodeURIComponent(part)}`;
     const played = await playAudioUrl(url, rate, token);
     if (!played) return false;
   }
@@ -287,10 +288,18 @@ export function speakAloud(
     } catch {
       suppressRecognitionEnd = false;
     }
+    const amharicVoice = (lang || '').toLowerCase().startsWith('am');
     const played = await speakWithAudio(text, lang || 'en-US', rate, token);
     if (token !== speechToken) return;
     if (played) {
       done();
+      return;
+    }
+    if (amharicVoice) {
+      const stillCurrent = await whenSomeoneTaps(token);
+      if (!stillCurrent) return;
+      const playedAfterTap = await speakWithAudio(text, lang || 'am-ET', rate, token);
+      if (token === speechToken) done();
       return;
     }
     let status = await speakWithBrowser(text, lang, rate, token);

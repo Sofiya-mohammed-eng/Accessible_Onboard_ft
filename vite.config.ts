@@ -1,7 +1,55 @@
 import tailwindcss from '@tailwindcss/vite';
 import react from '@vitejs/plugin-react';
+import {spawn} from 'node:child_process';
+import {existsSync} from 'node:fs';
 import path from 'path';
 import {defineConfig} from 'vite';
+
+const ttsCache = new Map<string, Buffer>();
+
+function gttsPython(): string {
+  const local = path.resolve(__dirname, '.venv/bin/python');
+  return existsSync(local) ? local : 'python3';
+}
+
+function speakWithGtts(text: string, lang: string, slow: boolean): Promise<Buffer> {
+  const key = `${lang}\n${slow ? 'slow' : 'normal'}\n${text}`;
+  const cached = ttsCache.get(key);
+  if (cached) return Promise.resolve(cached);
+  const script = path.resolve(__dirname, 'scripts/gtts_speak.py');
+  return new Promise((resolve, reject) => {
+    const child = spawn(gttsPython(), [script, lang, slow ? '1' : '0'], {stdio: ['pipe', 'pipe', 'pipe']});
+    const out: Buffer[] = [];
+    const err: Buffer[] = [];
+    const timer = setTimeout(() => child.kill('SIGKILL'), 20000);
+    child.stdout.on('data', (chunk: Buffer) => out.push(chunk));
+    child.stderr.on('data', (chunk: Buffer) => err.push(chunk));
+    child.on('error', (error) => {
+      clearTimeout(timer);
+      reject(error);
+    });
+    child.on('close', (code) => {
+      clearTimeout(timer);
+      if (code !== 0) {
+        reject(new Error(Buffer.concat(err).toString('utf8') || `gTTS exited ${code}`));
+        return;
+      }
+      const audio = Buffer.concat(out);
+      if (audio.length < 64) {
+        reject(new Error('gTTS returned empty audio'));
+        return;
+      }
+      ttsCache.set(key, audio);
+      if (ttsCache.size > 60) {
+        const oldest = ttsCache.keys().next().value;
+        if (oldest) ttsCache.delete(oldest);
+      }
+      resolve(audio);
+    });
+    child.stdin.write(text, 'utf8');
+    child.stdin.end();
+  });
+}
 
 function amharicSpeechPlugin() {
   return {
@@ -10,16 +58,32 @@ function amharicSpeechPlugin() {
       server.middlewares.use('/api/tts', async (req, res) => {
         try {
           const url = new URL(req.url || '', 'http://localhost');
-          const text = (url.searchParams.get('text') || '').slice(0, 180);
+          const text = (url.searchParams.get('text') || '').slice(0, 400);
           const lang = (url.searchParams.get('lang') || 'en').startsWith('am') ? 'am' : 'en';
-          const remote = `https://translate.google.com/translate_tts?ie=UTF-8&client=tw-ob&tl=${lang}&q=${encodeURIComponent(text)}`;
+          if (!text) {
+            res.statusCode = 400;
+            res.end();
+            return;
+          }
+          if (lang === 'am') {
+            try {
+              const audio = await speakWithGtts(text, 'am', true);
+              res.setHeader('Content-Type', 'audio/mpeg');
+              res.setHeader('Cache-Control', 'no-store');
+              res.end(audio);
+              return;
+            } catch {
+              // The library could not speak this line, so try the direct voice next.
+            }
+          }
+          const remote = `https://translate.google.com/translate_tts?ie=UTF-8&client=tw-ob&tl=${lang}&q=${encodeURIComponent(text.slice(0, 180))}`;
           const response = await fetch(remote, {
             headers: {
               'User-Agent': 'Mozilla/5.0',
               Referer: 'https://translate.google.com/',
             },
           });
-          if (!response.ok || !text) {
+          if (!response.ok) {
             res.statusCode = 502;
             res.end();
             return;

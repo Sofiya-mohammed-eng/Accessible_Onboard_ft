@@ -101,6 +101,13 @@ function isYes(text: string) {
   return false;
 }
 
+function speakableEmail(email: string, amharic: boolean) {
+  const [name, domain = ''] = email.split('@');
+  if (!name || !domain) return email;
+  const host = domain.replace(/\./g, amharic ? ' ነጥብ ' : ' dot ').replace(/\s+/g, ' ').trim();
+  return amharic ? `${name} አት ${host}` : `${name} at ${host}`;
+}
+
 function setFieldValue(field: HTMLInputElement | HTMLTextAreaElement, value: string) {
   const prototype =
     field instanceof HTMLTextAreaElement ? HTMLTextAreaElement.prototype : HTMLInputElement.prototype;
@@ -443,6 +450,44 @@ export function BlindConversation({
         const passwordInputs = () => [...formRoot.querySelectorAll<HTMLInputElement>('input[type="password"]')];
         let maybePassword = '';
         let lastTopic: 'email' | 'password' | 'name' | '' = '';
+        let pending: { kind: 'email' | 'password' | 'name'; value: string } | null = null;
+        const confirmLine = (kind: 'email' | 'password' | 'name', value: string) => {
+          const spoken = kind === 'email' ? speakableEmail(value, amharic()) : value;
+          if (amharic()) {
+            const lead = kind === 'email' ? 'ኢሜይልዎን ሰማሁ' : kind === 'password' ? 'የይለፍ ቃልዎን ሰማሁ' : 'ስምዎን ሰማሁ';
+            return `${lead}። ${spoken}. ትክክል ከሆነ አዎ ይበሉ። ካልሆነ ትክክል አይደለም ይበሉ።`;
+          }
+          const lead = kind === 'email' ? 'I heard your email' : kind === 'password' ? 'I heard your password' : 'I heard your name';
+          return `${lead}, ${spoken}. Say yes if that is right. If not, say it is not correct.`;
+        };
+        const savePending = () => {
+          if (!pending) return;
+          if (pending.kind === 'email') {
+            const email = emailInput();
+            if (email) setFieldValue(email, pending.value);
+          } else if (pending.kind === 'password') {
+            const fields = passwordInputs();
+            if (fields[0]) setFieldValue(fields[0], pending.value);
+          } else {
+            const name = nameInput();
+            if (name) setFieldValue(name, pending.value);
+          }
+          lastTopic = pending.kind;
+          pending = null;
+        };
+        const nextNeed = () => {
+          const email = emailInput();
+          const passwords = passwordInputs();
+          const name = nameInput();
+          const emailReady = Boolean(email && emailLooksValid(email.value));
+          const passwordReady = Boolean(passwords[0]?.value.trim());
+          const nameReady = !register || !name || Boolean(name.value.trim());
+          if (!emailReady) return amharic() ? 'እሺ። ኢሜይልዎን ገና እየጠበቅኩ ነው።' : 'Okay. I still need your email.';
+          if (!passwordReady) return amharic() ? 'እሺ። የይለፍ ቃልዎን ገና እየጠበቅኩ ነው።' : 'Okay. I still need your password.';
+          if (!nameReady) return amharic() ? 'እሺ። ሙሉ ስምዎን ይናገሩ።' : 'Okay. Tell me your full name.';
+          if (passwords[1] && !passwords[1].value.trim()) return amharic() ? 'ተመሳሳይ የይለፍ ቃል ከሆነ አዎ ይበሉ።' : 'If the password is the same, say yes.';
+          return amharic() ? 'ሁለቱም ዝግጁ ናቸው። ለመግባት ግባ ይበሉ። ለማስተካከል ትክክል አይደለም ይበሉ።' : 'Both are ready. Say sign in. If something is wrong, say it is not correct.';
+        };
         while (!cancelled) {
           const heard = carry || await hear();
           carry = '';
@@ -471,43 +516,49 @@ export function BlindConversation({
               continue;
             }
           }
-          const notes: string[] = [];
           if (intent.correction && !intent.clearEmail && !intent.clearPassword && !intent.clearName && !intent.email && !intent.password && !intent.name) {
-            if (lastTopic === 'password') intent.clearPassword = true;
-            else if (lastTopic === 'name') intent.clearName = true;
+            if (pending) {
+              pending = null;
+              await say(amharic() ? 'እሺ። ትክክል አይደለም። አጽድቻለሁ። እንደገና ይናገሩ።' : 'Okay. That is not correct. I cleared it. Say it again.');
+              continue;
+            }
+            const topic = lastTopic as string;
+            if (topic === 'password') intent.clearPassword = true;
+            else if (topic === 'name') intent.clearName = true;
             else intent.clearEmail = true;
           }
+          const notes: string[] = [];
           if (intent.clearEmail) {
             const email = emailInput();
             if (email) setFieldValue(email, '');
+            if (pending?.kind === 'email') pending = null;
             notes.push(amharic() ? 'እሺ። ኢሜይሉ ትክክል አይደለም። አጽድቻለሁ።' : 'Okay. That email is not correct. I cleared it.');
           }
           if (intent.clearPassword) {
             passwordInputs().forEach((field) => setFieldValue(field, ''));
+            if (pending?.kind === 'password') pending = null;
             notes.push(amharic() ? 'እሺ። የይለፍ ቃሉን አጽድቻለሁ።' : 'Okay. I cleared the password.');
           }
           if (intent.clearName) {
             const name = nameInput();
             if (name) setFieldValue(name, '');
+            if (pending?.kind === 'name') pending = null;
             notes.push(amharic() ? 'እሺ። ስሙን አጽድቻለሁ።' : 'Okay. I cleared the name.');
           }
-          if (intent.email) {
-            const email = emailInput();
-            if (email) setFieldValue(email, intent.email);
-            lastTopic = 'email';
-            notes.push(amharic() ? `ኢሜይልዎን ሰማሁ። ${intent.email}.` : `I heard your email, ${intent.email}.`);
+          if (intent.email || intent.password || intent.name) {
+            if (notes.length) await say(notes.join(' '));
+            const kind = intent.email ? 'email' : intent.password ? 'password' : 'name';
+            const value = intent.email || intent.password || intent.name;
+            pending = { kind, value };
+            await say(confirmLine(kind, value));
+            continue;
           }
-          if (intent.password) {
-            const fields = passwordInputs();
-            if (fields[0]) setFieldValue(fields[0], intent.password);
-            lastTopic = 'password';
-            notes.push(amharic() ? `የይለፍ ቃልዎን ሰማሁ። ${intent.password}.` : `I heard your password, ${intent.password}.`);
-          }
-          if (intent.name) {
-            const name = nameInput();
-            if (name) setFieldValue(name, intent.name);
-            lastTopic = 'name';
-            notes.push(amharic() ? `ስምዎን ሰማሁ። ${intent.name}.` : `I heard your name, ${intent.name}.`);
+          if (pending && intent.yes) {
+            savePending();
+            if (!intent.signIn && !intent.register) {
+              await say(nextNeed());
+              continue;
+            }
           }
           const email = emailInput();
           const passwords = passwordInputs();
@@ -515,24 +566,23 @@ export function BlindConversation({
           const emailReady = Boolean(email && emailLooksValid(email.value));
           const passwordReady = Boolean(passwords[0]?.value.trim());
           const nameReady = !register || !name || Boolean(name.value.trim());
-          if (!intent.email && !intent.password && !intent.name && !intent.clearEmail && !intent.clearPassword && !intent.clearName && !intent.signIn && !intent.register && !intent.yes) {
+          if (!intent.clearEmail && !intent.clearPassword && !intent.clearName && !intent.signIn && !intent.register && !intent.yes) {
             maybePassword = heard.trim();
             await say(amharic()
               ? `${heard} ኢሜይል አይደለም። የይለፍ ቃልዎ ከሆነ አዎ ይበሉ። ኢሜይል ከሆነ ኢሜይሉን ይናገሩ።`
               : `${heard} is not an email. If it is your password, say yes. Or tell me your email.`);
             continue;
           }
-          if (passwords[1] && passwordReady && !passwords[1].value.trim() && intent.yes) {
+          if (passwords[1] && passwordReady && !passwords[1].value.trim() && intent.yes && !pending) {
             setFieldValue(passwords[1], passwords[0].value);
           }
           const confirmReady = !passwords[1] || Boolean(passwords[1].value.trim());
-          const ready = emailReady && passwordReady && nameReady && confirmReady;
+          const ready = emailReady && passwordReady && nameReady && confirmReady && !pending;
           if ((intent.signIn || intent.register || (intent.yes && ready)) && ready) {
             if (notes.length) await say(notes.join(' '));
             formRoot.querySelector<HTMLButtonElement>('button[type="submit"]')?.click();
             const fix = await readProblem(formRoot);
             if (!fix || cancelled) return;
-            notes.length = 0;
             if (fix === 'email' && email) setFieldValue(email, '');
             if (fix === 'password' || fix === 'confirm') passwords.forEach((field) => setFieldValue(field, ''));
             await say(amharic()
@@ -540,12 +590,8 @@ export function BlindConversation({
               : 'That did not work. Tell me the email or the password again.');
             continue;
           }
-          if (!emailReady) notes.push(amharic() ? 'ኢሜይልዎን ገና እየጠበቅኩ ነው።' : 'I still need your email.');
-          else if (!passwordReady) notes.push(amharic() ? 'የይለፍ ቃልዎን ገና እየጠበቅኩ ነው።' : 'I still need your password.');
-          else if (!nameReady) notes.push(amharic() ? 'ሙሉ ስምዎን ይናገሩ።' : 'Tell me your full name.');
-          else if (passwords[1] && !passwords[1].value.trim()) notes.push(amharic() ? 'ተመሳሳይ የይለፍ ቃል ከሆነ አዎ ይበሉ።' : 'If the password is the same, say yes.');
-          else notes.push(amharic() ? 'ሁለቱም ዝግጁ ናቸው። ለመግባት ግባ ይበሉ። ለማስተካከል ትክክል አይደለም ይበሉ።' : 'Both are ready. Say sign in. If something is wrong, say it is not correct.');
-          await say(notes.join(' '));
+          if (notes.length) notes.push(nextNeed());
+          await say(notes.length ? notes.join(' ') : nextNeed());
         }
         return;
       }
