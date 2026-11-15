@@ -103,7 +103,7 @@ export const ApplicationAssistantView: React.FC<ApplicationAssistantViewProps> =
     window.setTimeout(() => setSpeaking(false), 1200);
   };
 
-  const dictate = (key: AnswerKey) => {
+  const dictate = async (key: AnswerKey) => {
     if (voiceRef.current) {
       voiceRef.current.stop();
       voiceRef.current = null;
@@ -116,7 +116,7 @@ export const ApplicationAssistantView: React.FC<ApplicationAssistantViewProps> =
       return;
     }
     setVoiceNote('Listening. Speak your answer, then it will appear in the box.');
-    const session = startVoiceDictation({
+    const session = await startVoiceDictation({
       onTranscript: (transcript, isFinal) => {
         if (!isFinal) return;
         setAnswer(key, transcript);

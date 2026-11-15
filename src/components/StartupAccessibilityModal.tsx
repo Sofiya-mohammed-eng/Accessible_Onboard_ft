@@ -7,6 +7,7 @@ import {
   ZoomIn,
   SlidersHorizontal,
   Keyboard,
+  Camera,
   Mic,
   ListChecks,
   Hand,
@@ -16,12 +17,14 @@ import {
   ArrowRight,
   ArrowLeft,
   Globe,
+  ShieldCheck,
   X,
 } from 'lucide-react';
 import {
   SUPPORTED_LANGUAGES,
   getLocalizedCopy,
 } from '../engines/i18n';
+import { requestCameraAndMicrophoneAccess } from '../engines/browserPermissions';
 import {
   AccessibilityPreferences,
   NavigationStyle,
@@ -49,6 +52,27 @@ interface NavChoiceCard {
   description: string;
   icon: React.ComponentType<{ className?: string; 'aria-hidden'?: boolean }>;
 }
+
+type MediaPermissionUiState =
+  | 'idle'
+  | 'requesting'
+  | 'granted'
+  | 'partial'
+  | 'denied'
+  | 'unsupported';
+
+const MEDIA_PERMISSION_STATUS_COPY: Record<MediaPermissionUiState, string> = {
+  idle: 'Optional. Clear both browser prompts now so hands-free navigation is ready later.',
+  requesting:
+    'Waiting for the browser popup. Press Tab + Enter or ask an assistant to choose Allow.',
+  granted: 'Camera and microphone access granted for this browser.',
+  partial:
+    'One permission was granted. Retry if you plan to use both voice and gaze features.',
+  denied:
+    'Access was not granted. You can still use keyboard, text, and screen reader navigation.',
+  unsupported:
+    'This browser cannot request both permissions together. Individual prompts will appear when needed.',
+};
 
 const NAVIGATION_CHOICES: NavChoiceCard[] = [
   {
@@ -110,6 +134,8 @@ export const StartupAccessibilityModal: React.FC<StartupAccessibilityModalProps>
   const [step, setStep] = useState<'language' | 'setup'>(() =>
     preferences.languageSelected ? 'setup' : 'language'
   );
+  const [mediaPermissionState, setMediaPermissionState] =
+    useState<MediaPermissionUiState>('idle');
   const firstFocusRef = useRef<HTMLButtonElement | null>(null);
   const copy = getLocalizedCopy(preferences.language);
 
@@ -152,6 +178,24 @@ export const StartupAccessibilityModal: React.FC<StartupAccessibilityModalProps>
     onSpeakText(
       `${copy.setupStepTitle}. ${copy.setupStepSubtitle}`
     );
+  };
+
+  const handleGrantMediaAccess = async () => {
+    setMediaPermissionState('requesting');
+    try {
+      const result = await requestCameraAndMicrophoneAccess();
+      if (result.granted) {
+        setMediaPermissionState('granted');
+      } else if (result.partial) {
+        setMediaPermissionState('partial');
+      } else if (result.camera === 'unsupported' && result.microphone === 'unsupported') {
+        setMediaPermissionState('unsupported');
+      } else {
+        setMediaPermissionState('denied');
+      }
+    } catch {
+      setMediaPermissionState('denied');
+    }
   };
 
   const cycleTextSize = () => {
@@ -482,6 +526,65 @@ export const StartupAccessibilityModal: React.FC<StartupAccessibilityModalProps>
                   <Compass className="h-4 w-4" aria-hidden="true" />
                   Help Me Navigate
                 </button>
+              </div>
+            </section>
+
+            {/* Optional combined camera and microphone permission step */}
+            <section
+              aria-labelledby="media-permission-heading"
+              className="mt-7 rounded-xl border-2 border-[#0056B3] bg-blue-50/60 p-4 high-contrast:border-cyan-300 high-contrast:bg-neutral-950"
+            >
+              <div className="flex items-start gap-3">
+                <span className="mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-[#0056B3] text-white high-contrast:bg-cyan-300 high-contrast:text-black">
+                  <ShieldCheck className="h-5 w-5" aria-hidden="true" />
+                </span>
+                <div className="min-w-0 flex-1">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <h2
+                      id="media-permission-heading"
+                      className="font-display text-base font-bold text-[#001F3F] high-contrast:text-yellow-300"
+                    >
+                      Grant Camera &amp; Mic Access Together
+                    </h2>
+                    <span className="rounded-full border border-[#0056B3] px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-[#0056B3] high-contrast:border-cyan-300 high-contrast:text-cyan-300">
+                      Optional
+                    </span>
+                  </div>
+                  <p className="mt-1 text-xs leading-relaxed text-slate-700 high-contrast:text-slate-300">
+                    Native browser popups cannot be clicked by the gaze cursor. Clear both
+                    permissions now while you can use Tab + Enter or ask an assistant to choose
+                    Allow.
+                  </p>
+                  <div className="mt-3 flex flex-wrap items-center gap-3">
+                    <button
+                      type="button"
+                      onClick={() => void handleGrantMediaAccess()}
+                      disabled={mediaPermissionState === 'requesting'}
+                      aria-describedby="media-permission-status"
+                      className="inline-flex items-center gap-2 rounded-lg border-2 border-[#0056B3] bg-white px-4 py-2.5 text-sm font-semibold text-[#001F3F] hover:bg-blue-50 disabled:cursor-wait disabled:opacity-70 high-contrast:border-cyan-300 high-contrast:bg-black high-contrast:text-cyan-300"
+                    >
+                      <Camera className="h-4 w-4" aria-hidden="true" />
+                      <Mic className="h-4 w-4" aria-hidden="true" />
+                      {mediaPermissionState === 'requesting'
+                        ? 'Waiting for permission popup…'
+                        : 'Grant Camera & Mic Access Together'}
+                    </button>
+                    <p
+                      id="media-permission-status"
+                      role="status"
+                      aria-live="polite"
+                      className={`max-w-md text-xs leading-relaxed ${
+                        mediaPermissionState === 'granted'
+                          ? 'font-semibold text-green-800 high-contrast:text-green-300'
+                          : mediaPermissionState === 'denied' || mediaPermissionState === 'partial'
+                            ? 'font-semibold text-amber-900 high-contrast:text-amber-200'
+                            : 'text-slate-600 high-contrast:text-slate-300'
+                      }`}
+                    >
+                      {MEDIA_PERMISSION_STATUS_COPY[mediaPermissionState]}
+                    </p>
+                  </div>
+                </div>
               </div>
             </section>
 

@@ -72,7 +72,7 @@ export const NavigationHelperModal: React.FC<NavigationHelperModalProps> = ({
 
   if (!isOpen) return null;
 
-  const handleToggleVoiceCommand = () => {
+  const handleToggleVoiceCommand = async () => {
     if (isListening) {
       voiceRef.current?.stop();
       voiceRef.current = null;
@@ -84,7 +84,7 @@ export const NavigationHelperModal: React.FC<NavigationHelperModalProps> = ({
     setIsListening(true);
     setVoiceFeedback('Listening... Say "Dashboard", "Find Jobs", "Apply", "Verify", or "Review".');
 
-    const session = startVoiceDictation({
+    const session = await startVoiceDictation({
       onTranscript: (transcript, isFinal) => {
         setVoiceFeedback(`Heard: "${transcript}"`);
         const matched = matchSpokenDestination(transcript);

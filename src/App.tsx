@@ -11,6 +11,9 @@ import { VerificationEngineView } from './components/VerificationEngineView';
 import { FinalReviewView } from './components/FinalReviewView';
 import { NavigationHelperModal } from './components/NavigationHelperModal';
 import { StartupAccessibilityModal } from './components/StartupAccessibilityModal';
+import { BrowserPermissionBanner } from './components/BrowserPermissionBanner';
+import { GazeControlManager } from './accessibility/GazeControlManager';
+import { shouldAutoStartGaze } from './accessibility/gazeCalibration';
 import {
   appendActivity,
   loadActivities,
@@ -34,7 +37,12 @@ import {
 } from './types/accessbridge';
 
 export default function App() {
-  const [preferences, setPreferences] = useState<AccessibilityPreferences>(() => loadPreferences());
+  const [preferences, setPreferences] = useState<AccessibilityPreferences>(() => {
+    const loaded = loadPreferences();
+    return shouldAutoStartGaze()
+      ? { ...loaded, gazeControlEnabled: true }
+      : loaded;
+  });
   const [draft, setDraft] = useState<ApplicationDraft>(() => loadApplicationDraft());
   const [intended, setIntended] = useState<IntendedApplicationValues>(() => loadIntendedValues());
   const [, setActivities] = useState<ActivityLogItem[]>(() => loadActivities());
@@ -432,6 +440,13 @@ export default function App() {
         onSpeakText={handleSpeakText}
         onOpenStartupSetup={() => setStartupModalOpen(true)}
       />
+
+      <GazeControlManager
+        preferences={preferences}
+        onUpdatePreferences={handleUpdatePreferences}
+      />
+
+      <BrowserPermissionBanner />
     </div>
   );
 }

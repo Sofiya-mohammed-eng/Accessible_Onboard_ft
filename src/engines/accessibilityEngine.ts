@@ -1,3 +1,5 @@
+import { beginPermissionPrompt } from './browserPermissions';
+
 export interface SpeechSupportInfo {
   synthesisSupported: boolean;
   recognitionSupported: boolean;
@@ -28,6 +30,7 @@ interface SpeechRecognitionInstanceLike {
   lang: string;
   start: () => void;
   stop: () => void;
+  onstart: (() => void) | null;
   onresult: ((event: SpeechRecognitionEventLike) => void) | null;
   onerror: ((event: SpeechRecognitionErrorEventLike) => void) | null;
   onend: (() => void) | null;
@@ -114,11 +117,12 @@ export interface VoiceInputSession {
   stop: () => void;
 }
 
-export function startVoiceDictation(callbacks: {
+export async function startVoiceDictation(callbacks: {
   onTranscript: (transcript: string, isFinal: boolean) => void;
   onError: (message: string) => void;
   onEnd: () => void;
-}): VoiceInputSession | null {
+  onStart?: () => void;
+}): Promise<VoiceInputSession | null> {
   const Ctor = getSpeechRecognitionConstructor();
   if (!Ctor) {
     callbacks.onError(
@@ -128,11 +132,24 @@ export function startVoiceDictation(callbacks: {
     return null;
   }
 
+  const permissionRequest = await beginPermissionPrompt(['microphone']);
+  let permissionSettled = false;
+  const settlePermission = () => {
+    if (permissionSettled) return;
+    permissionSettled = true;
+    permissionRequest.end();
+  };
+
   try {
     const recognition = new Ctor();
     recognition.continuous = true;
     recognition.interimResults = true;
     recognition.lang = 'en-US';
+
+    recognition.onstart = () => {
+      settlePermission();
+      callbacks.onStart?.();
+    };
 
     recognition.onresult = (event: SpeechRecognitionEventLike) => {
       let combined = '';
@@ -148,6 +165,7 @@ export function startVoiceDictation(callbacks: {
     };
 
     recognition.onerror = (event: SpeechRecognitionErrorEventLike) => {
+      settlePermission();
       const reason =
         event.error === 'not-allowed'
           ? 'Microphone permission was denied. Please allow microphone access or continue with text input.'
@@ -156,6 +174,7 @@ export function startVoiceDictation(callbacks: {
     };
 
     recognition.onend = () => {
+      settlePermission();
       callbacks.onEnd();
     };
 
@@ -170,6 +189,7 @@ export function startVoiceDictation(callbacks: {
       },
     };
   } catch {
+    settlePermission();
     callbacks.onError('Unable to start browser speech recognition. Please use text input.');
     callbacks.onEnd();
     return null;
