@@ -1,6 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { AppHeader } from './components/AppHeader';
-import { LandingPage } from './components/LandingPage';
 import { OnboardingWizard } from './components/OnboardingWizard';
 import { DashboardView } from './components/DashboardView';
 import { JobDiscoveryView } from './components/JobDiscoveryView';
@@ -9,9 +8,9 @@ import { LoginToApply } from './components/LoginToApply';
 import { VoiceDock } from './components/VoiceDock';
 import { BlindConversation } from './components/BlindConversation';
 import { StartupAccessibilityModal } from './components/StartupAccessibilityModal';
+import { StartupIntro } from './components/StartupIntro';
 import { BrowserPermissionBanner } from './components/BrowserPermissionBanner';
 import { GazeControlManager } from './accessibility/GazeControlManager';
-import { shouldAutoStartGaze } from './accessibility/gazeCalibration';
 import {
   appendActivity,
   loadActivities,
@@ -24,10 +23,20 @@ import {
 } from './engines/preferencesStore';
 import { speakAloud, stopSpeakingAloud } from './engines/accessibilityEngine';
 import { getLanguageOption } from './engines/i18n';
-import { ControlChoice, controlConfirmation } from './engines/controlChoice';
 import { ConversationEngine } from './engines/conversation/ConversationEngine';
 import { navigationShortcut } from './engines/conversation/keyboardContinue';
 import { getPageCopy } from './engines/pageCopy';
+import { loadSavedView, saveSavedView } from './engines/formDraft';
+import {
+  InteractionChoice,
+  afterMethods,
+  applyInteractionChoices,
+  cameraChoice,
+  gazeAfterHeadConfirmation,
+  gazeEnabledOnStartup,
+  mayRequestCamera,
+  rememberCameraChoice,
+} from './engines/startupFlow';
 import {
   AccessibilityPreferences,
   ActivityLogItem,
@@ -41,16 +50,32 @@ import {
 export default function App() {
   const [preferences, setPreferences] = useState<AccessibilityPreferences>(() => {
     const loaded = loadPreferences();
-    return shouldAutoStartGaze() ? { ...loaded, gazeControlEnabled: true } : loaded;
+    return { ...loaded, gazeControlEnabled: gazeEnabledOnStartup(loaded.gazeControlEnabled) };
   });
   const [draft, setDraft] = useState<ApplicationDraft>(() => loadApplicationDraft());
   const [intended, setIntended] = useState<IntendedApplicationValues>(() => loadIntendedValues());
   const [, setActivities] = useState<ActivityLogItem[]>(() => loadActivities());
-  const [currentView, setCurrentView] = useState<NavigationView>('landing');
+  const [currentView, setCurrentView] = useState<NavigationView>(() => {
+    const saved = loadSavedView();
+    const signed = sessionStorage.getItem('allways-signed-in') === '1';
+    const views: NavigationView[] = ['jobs', 'apply', 'dashboard', 'login', 'onboarding'];
+    if (views.includes(saved as NavigationView)) {
+      const view = saved as NavigationView;
+      if ((view === 'jobs' || view === 'apply' || view === 'dashboard') && !signed) return 'login';
+      return view;
+    }
+    return signed ? 'jobs' : 'login';
+  });
   const [isSpeaking, setIsSpeaking] = useState<boolean>(false);
   const [liveCaption, setLiveCaption] = useState<string>('');
+  const [showIntro, setShowIntro] = useState<boolean>(
+    () => sessionStorage.getItem('allways-signed-in') !== '1',
+  );
   const [startupModalOpen, setStartupModalOpen] = useState<boolean>(false);
-  const [startupStep, setStartupStep] = useState<'language' | 'control'>('language');
+  const [mustChooseLanguage, setMustChooseLanguage] = useState<boolean>(
+    () => sessionStorage.getItem('allways-signed-in') !== '1',
+  );
+  const [startupStep, setStartupStep] = useState<'language' | 'methods' | 'head'>('language');
   const [signedIn, setSignedIn] = useState<boolean>(() => sessionStorage.getItem('allways-signed-in') === '1');
   const mainRef = useRef<HTMLElement | null>(null);
   const conversationEngineRef = useRef<ConversationEngine | null>(null);
@@ -88,8 +113,16 @@ export default function App() {
   );
 
   const handleNavigate = useCallback((view: NavigationView) => {
+    if (view === 'landing') {
+      setStartupStep('language');
+      setStartupModalOpen(true);
+      setCurrentView(signedIn ? 'jobs' : 'login');
+      window.scrollTo({ top: 0, behavior: 'auto' });
+      return;
+    }
     const needsAccount = view === 'jobs' || view === 'apply' || view === 'dashboard';
     const next = needsAccount && !signedIn ? 'login' : view;
+    saveSavedView(next);
     setCurrentView(next);
     window.scrollTo({ top: 0, behavior: 'auto' });
     setTimeout(() => {
@@ -209,53 +242,91 @@ export default function App() {
     setStartupModalOpen(true);
   }, []);
   const openDashboard = useCallback(() => handleNavigate('dashboard'), [handleNavigate]);
+  const mustChooseLanguageRef = useRef(mustChooseLanguage);
+  mustChooseLanguageRef.current = mustChooseLanguage;
+  const finishToLogin = useCallback(() => {
+    handleUpdatePreferences({ startupModalCompleted: true });
+    setMustChooseLanguage(false);
+    setStartupModalOpen(false);
+    handleNavigate('login');
+  }, [handleNavigate, handleUpdatePreferences]);
   const chooseLanguage = useCallback(
     (language: PreferredLanguage) => {
-      handleUpdatePreferences({ language, languageSelected: true });
-      setStartupStep('control');
-    },
-    [handleUpdatePreferences],
-  );
-  const chooseControl = useCallback(
-    (choice: ControlChoice, announce = false) => {
-      const gazeMode = choice === 'head' ? 'head' : choice === 'eyes' ? 'eye' : 'hybrid';
-      handleUpdatePreferences(
-        choice === 'voice'
-          ? {
-              gazeControlEnabled: false,
-              voiceCommands: true,
-              speechInput: true,
-              languageSelected: true,
-              startupModalCompleted: true,
-            }
-          : choice === 'keyboard'
-            ? {
-                gazeControlEnabled: false,
-                keyboardNavigation: true,
-                languageSelected: true,
-                startupModalCompleted: true,
-              }
-            : {
-                gazeControlEnabled: true,
-                gazeTrackingMode: gazeMode,
-                languageSelected: true,
-                startupModalCompleted: true,
-              },
-      );
+      handleUpdatePreferences({
+        language,
+        languageSelected: true,
+      });
+      if (mustChooseLanguageRef.current) {
+        setStartupStep('methods');
+        return;
+      }
       setStartupModalOpen(false);
       handleNavigate('login');
-      if (announce) {
-        const message = controlConfirmation(choice, preferences.language);
-        const lang = getLanguageOption(preferences.language).speechLang;
-        window.setTimeout(() => handleSpeakText(message, lang), 300);
-      }
     },
-    [handleNavigate, handleSpeakText, handleUpdatePreferences, preferences.language],
+    [handleNavigate, handleUpdatePreferences],
+  );
+  const continueFromLanguage = useCallback(() => {
+    if (!preferencesRef.current.languageSelected) return;
+    if (mustChooseLanguageRef.current) {
+      setStartupStep('methods');
+      return;
+    }
+    setStartupModalOpen(false);
+    handleNavigate('login');
+  }, [handleNavigate]);
+  const continueFromMethods = useCallback(
+    (choice: InteractionChoice) => {
+      const next = applyInteractionChoices(preferencesRef.current, choice);
+      handleUpdatePreferences({
+        keyboardNavigation: next.keyboardNavigation,
+        switchCompatibleControls: next.switchCompatibleControls,
+        speechInput: next.speechInput,
+        textInput: next.textInput,
+        preferredNavigationStyles: next.preferredNavigationStyles,
+      });
+      rememberCameraChoice(choice);
+      if (afterMethods(choice) === 'head') {
+        setStartupStep('head');
+        return;
+      }
+      finishToLogin();
+    },
+    [finishToLogin, handleUpdatePreferences],
+  );
+  const confirmHead = useCallback(
+    (accepted: boolean) => {
+      if (mayRequestCamera(accepted)) {
+        const next = gazeAfterHeadConfirmation(preferencesRef.current, true, cameraChoice());
+        handleUpdatePreferences({
+          gazeControlEnabled: next.gazeControlEnabled,
+          gazeTrackingMode: next.gazeTrackingMode,
+          startupModalCompleted: true,
+        });
+      } else {
+        handleUpdatePreferences({ gazeControlEnabled: false, startupModalCompleted: true });
+      }
+      setMustChooseLanguage(false);
+      setStartupModalOpen(false);
+      handleNavigate('login');
+    },
+    [handleNavigate, handleUpdatePreferences],
   );
   const continueToSignIn = useCallback(() => {
     setStartupModalOpen(false);
     handleNavigate('login');
   }, [handleNavigate]);
+  const openLogin = useCallback(() => {
+    setStartupModalOpen(false);
+    handleNavigate('login');
+  }, [handleNavigate]);
+  const finishIntro = useCallback(() => {
+    stopSpeakingAloud();
+    setShowIntro(false);
+    if (sessionStorage.getItem('allways-signed-in') === '1') return;
+    setStartupStep('language');
+    setMustChooseLanguage(true);
+    setStartupModalOpen(true);
+  }, []);
 
   return (
     <div className="min-h-screen flex flex-col bg-transparent text-[#0e2a4a] high-contrast:bg-black high-contrast:text-white">
@@ -266,7 +337,7 @@ export default function App() {
       <AppHeader
         currentView={currentView}
         onNavigate={handleNavigate}
-        onLogin={() => handleNavigate('login')}
+        onLogin={openLogin}
         onGetStarted={() => setStartupModalOpen(true)}
         onOpenLanguage={() => setStartupModalOpen(true)}
         language={preferences.language}
@@ -303,15 +374,6 @@ export default function App() {
         )}
 
       <main id="main-content" ref={mainRef} tabIndex={-1} className="flex-1 scroll-mt-20 focus:outline-none">
-        {currentView === 'landing' && (
-          <LandingPage
-            onNavigate={handleNavigate}
-            onGetStarted={() => setStartupModalOpen(true)}
-            hasCompletedOnboarding={preferences.onboardingCompleted}
-            language={preferences.language}
-          />
-        )}
-
         {currentView === 'onboarding' && (
           <OnboardingWizard
             preferences={preferences}
@@ -367,10 +429,11 @@ export default function App() {
           <LoginToApply
             purpose="account"
             language={preferences.language}
-            onBack={() => handleNavigate('landing')}
+            onBack={() => setStartupModalOpen(false)}
             onContinue={() => {
               sessionStorage.setItem('allways-signed-in', '1');
               setSignedIn(true);
+              saveSavedView('jobs');
               setCurrentView('jobs');
             }}
           />
@@ -393,9 +456,6 @@ export default function App() {
             </p>
           </div>
           <nav aria-label={preferences.language === 'am' ? 'የግርጌ አገናኞች' : 'Footer'} className="flex flex-wrap items-start gap-3 lg:justify-end">
-            <button type="button" onClick={() => handleNavigate('landing')} className="rounded-full bg-white px-4 py-2 font-semibold text-[#0e2a4a] ring-1 ring-[#d5e6f7]">
-              {preferences.language === 'am' ? 'መነሻ' : 'Home'}
-            </button>
             {signedIn ? (
               <>
                 <button type="button" onClick={() => handleNavigate('jobs')} className="rounded-full bg-white px-4 py-2 font-semibold text-[#0e2a4a] ring-1 ring-[#d5e6f7]">
@@ -406,7 +466,7 @@ export default function App() {
                 </button>
               </>
             ) : (
-              <button type="button" onClick={() => handleNavigate('login')} className="rounded-full bg-[#1a73e8] px-4 py-2 font-semibold text-white">
+              <button type="button" onClick={openLogin} className="rounded-full bg-[#1a73e8] px-4 py-2 font-semibold text-white">
                 {preferences.language === 'am' ? 'ይግቡ' : 'Sign in'}
               </button>
             )}
@@ -414,8 +474,10 @@ export default function App() {
         </div>
       </footer>
 
+      {showIntro && <StartupIntro onFinished={finishIntro} />}
+
       <BlindConversation
-        enabled
+        enabled={!showIntro}
         language={preferences.language}
         rate={preferences.speechRate}
         pageKey={currentView}
@@ -425,7 +487,11 @@ export default function App() {
         onGetStarted={openLanguage}
         onOpenDashboard={openDashboard}
         onChooseLanguage={chooseLanguage}
-        onChooseControl={chooseControl}
+        onLanguageReady={chooseLanguage}
+        onMethodsChosen={continueFromMethods}
+        onSkipInteraction={finishToLogin}
+        onConfirmHead={confirmHead}
+        interactionSetup={mustChooseLanguage}
         onContinueToSignIn={continueToSignIn}
         onAdjustTextSize={adjustTextSize}
         onSetLanguage={setSpokenLanguage}
@@ -433,7 +499,7 @@ export default function App() {
         onReturnToRegistration={returnToRegistration}
         conversationEngine={conversationEngine}
       />
-      {!startupModalOpen && (
+      {!startupModalOpen && !showIntro && (
         <VoiceDock
           language={preferences.language}
           speaking={isSpeaking}
@@ -450,12 +516,14 @@ export default function App() {
         onUpdatePreferences={handleUpdatePreferences}
         onSpeakText={handleSpeakText}
         onStopSpeaking={handleStopSpeaking}
-        onOpenNavigationHelper={() => setStartupModalOpen(false)}
-        onContinueFromLanguage={() => chooseLanguage(preferences.language)}
-        onChooseControl={(choice) => chooseControl(choice, true)}
+        onContinueFromLanguage={continueFromLanguage}
+        onContinueFromMethods={continueFromMethods}
+        onSkipMethods={finishToLogin}
+        onConfirmHead={confirmHead}
         onBackToLanguage={() => setStartupStep('language')}
+        onBackToMethods={() => setStartupStep('methods')}
         onClose={() => setStartupModalOpen(false)}
-        canCloseDirectly={preferences.languageSelected}
+        canCloseDirectly={!mustChooseLanguage}
       />
 
       <GazeControlManager

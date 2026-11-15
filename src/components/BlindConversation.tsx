@@ -1,22 +1,28 @@
 import { useEffect, useRef, useState } from 'react';
-import { listenOnce, speakAndWait, stopConversationRecognition, stopSpeakingAloud } from '../engines/accessibilityEngine';
+import { GUIDE_SPEECH_RATE, listenFailureMessage, listenOnce, speakAndWait, stopConversationRecognition, stopSpeakingAloud, takeListenFailure } from '../engines/accessibilityEngine';
 import { getLanguageOption, getLocalizedCopy } from '../engines/i18n';
-import { pageListenLanguage, startupRecognitionLanguages } from '../engines/recognitionLanguage';
+import { listenForStartupLanguage, pageListenLanguage, startupListenRetry } from '../engines/recognitionLanguage';
 import { getPageCopy, unsupportedLanguageNotice } from '../engines/pageCopy';
-import { interpretAccount } from '../engines/accountIntent';
+import { acceptHeldConfirmation, accountChoice, applyAccountFields, cleanSpokenName, emptyHeldAccount, firstHeldField, interpretAccount, releaseHeldField, retainAccountFields } from '../engines/accountIntent';
+import { accountChoicePrompt, accountFormSpeech, accountSwitchMissed, passwordBoxFilled, requestAccountForm, visibleAccountMode, visibleHeading } from '../engines/accountPage';
 import { emailLooksValid, normalizeSpokenEmail } from '../engines/spokenEmail';
+import { PreferredLanguage } from '../types/accessbridge';
 import {
-  ControlChoice,
-  controlConfirmation,
-  controlPrompt,
-  controlRetry,
-  interpretControlChoice,
-} from '../engines/controlChoice';
+  headDeclinedMessage,
+  headEnabledMessage,
+  cameraChoice,
+  headPrompt,
+  headRetry,
+  type InteractionChoice,
+  interpretHeadConfirmation,
+  interpretInteractionUtterance,
+  methodsPrompt,
+  methodsRetry,
+} from '../engines/startupFlow';
 import { executeAction } from '../engines/conversation/ActionRegistry';
 import { ConversationEngine } from '../engines/conversation/ConversationEngine';
 import { focusNamedField, goToNextQuestion, openHeaderNavigation, readVisiblePage } from '../engines/conversation/pageActions';
 import { emailQuestion, nameQuestion, passwordQuestion, passwordReceived } from '../engines/conversation/ResponseGenerator';
-import { PreferredLanguage } from '../types/accessbridge';
 
 interface BlindConversationProps {
   enabled: boolean;
@@ -24,12 +30,16 @@ interface BlindConversationProps {
   rate: number;
   pageKey: string;
   languageOpen: boolean;
-  startupStep: 'language' | 'control';
+  startupStep: 'language' | 'methods' | 'head';
   onCaption: (text: string) => void;
   onGetStarted: () => void;
   onOpenDashboard: () => void;
   onChooseLanguage: (language: PreferredLanguage) => void;
-  onChooseControl: (choice: ControlChoice) => void;
+  onLanguageReady: (language: PreferredLanguage) => void;
+  onMethodsChosen: (choice: InteractionChoice) => void;
+  onSkipInteraction: () => void;
+  onConfirmHead: (accepted: boolean) => void;
+  interactionSetup: boolean;
   onContinueToSignIn: () => void;
   onAdjustTextSize?: (direction: 'increase' | 'decrease') => boolean;
   onSetLanguage?: (language: PreferredLanguage) => void;
@@ -39,10 +49,8 @@ interface BlindConversationProps {
 }
 
 const GET_STARTED = ['get started', 'get start', 'lets start', "let's start", 'start', 'ጀምር', 'ጀምሩ', 'ጀመር', 'ጀምሪ', 'እንጀምር', 'ጀምረን', 'ጀምርልኝ', 'እጀምር', 'ተጀመር', 'jemer', 'jemir', 'jemr', 'gemer', 'gemir', 'jemeru'];
-const ENGLISH = ['english', 'እንግሊዝኛ'];
-const AMHARIC = ['amharic', 'አማርኛ', 'amarinya'];
-const REGISTER = ['register', 'sign up', 'create account', 'ተመዝገብ', 'ምዝገባ'];
-const SIGN_IN = ['sign in', 'login', 'log in', 'ግባ', 'መግቢያ'];
+const REGISTER = ['register', 'sign up', 'create account', 'ተመዝገብ', 'ምዝገባ', 'መመዝገብ', 'ልመዝገብ'];
+const SIGN_IN = ['sign in', 'login', 'log in', 'ግባ', 'መግቢያ', 'መግባት', 'ልግባ'];
 const APPLY = ['apply', 'አመልክት', 'አመልከት', 'ያመልክቱ', 'ላመልክት', 'ማመልከት', 'አመልክቻለሁ', 'አፕላይ', 'amelk', 'amalk', 'amelket', 'melket', 'memelket', 'yamelk', 'aplik'];
 const DETAILS = ['view job details', 'view details', 'details', 'ዝርዝር', 'ተመልከት', 'zerzer', 'zirzir', 'zirzer', 'dets'];
 const OPEN_FILE = ['open file', 'choose file', 'ፋይል ክፈት', 'ፋይል', 'ክፈት', 'fayl', 'fayil', 'file', 'kfet', 'keft', 'open'];
@@ -156,7 +164,7 @@ function visiblePage(root: HTMLElement) {
     let text = node.textContent || '';
     const field = node.querySelector('input, textarea');
     if (field instanceof HTMLInputElement || field instanceof HTMLTextAreaElement) {
-      if (field.type !== 'radio' && field.type !== 'checkbox' && field.type !== 'file' && field.value.trim()) {
+      if (field.type !== 'radio' && field.type !== 'checkbox' && field.type !== 'file' && field.type !== 'password' && field.value.trim()) {
         text = `${text} ${field.value.trim()}`;
       }
     }
@@ -175,7 +183,7 @@ function visiblePage(root: HTMLElement) {
 function textFields(root: HTMLElement) {
   return [...root.querySelectorAll('input, textarea')].filter((node): node is HTMLInputElement | HTMLTextAreaElement => {
     if (!(node instanceof HTMLInputElement || node instanceof HTMLTextAreaElement)) return false;
-    if (node.disabled || node.type === 'hidden' || node.type === 'file' || node.type === 'radio' || node.type === 'checkbox') {
+    if (node.disabled || node.type === 'hidden' || node.type === 'file' || node.type === 'radio' || node.type === 'checkbox' || node.type === 'password') {
       return false;
     }
     return node.offsetParent !== null;
@@ -193,7 +201,11 @@ export function BlindConversation({
   onGetStarted,
   onOpenDashboard,
   onChooseLanguage,
-  onChooseControl,
+  onLanguageReady,
+  onMethodsChosen,
+  onSkipInteraction,
+  onConfirmHead,
+  interactionSetup,
   onContinueToSignIn,
   onAdjustTextSize,
   onSetLanguage,
@@ -208,7 +220,17 @@ export function BlindConversation({
   const setLanguageRef = useRef(onSetLanguage);
   const openJobsRef = useRef(onOpenFindJobs);
   const returnRef = useRef(onReturnToRegistration);
+  const languageReadyRef = useRef(onLanguageReady);
+  const methodsChosenRef = useRef(onMethodsChosen);
+  const skipInteractionRef = useRef(onSkipInteraction);
+  const confirmHeadRef = useRef(onConfirmHead);
+  const interactionSetupRef = useRef(interactionSetup);
   adjustTextRef.current = onAdjustTextSize;
+  languageReadyRef.current = onLanguageReady;
+  methodsChosenRef.current = onMethodsChosen;
+  skipInteractionRef.current = onSkipInteraction;
+  confirmHeadRef.current = onConfirmHead;
+  interactionSetupRef.current = interactionSetup;
   setLanguageRef.current = onSetLanguage;
   openJobsRef.current = onOpenFindJobs;
   returnRef.current = onReturnToRegistration;
@@ -253,14 +275,22 @@ export function BlindConversation({
 
     const say = (text: string, lang?: string) => {
       captionRef.current(text);
-      return speakAndWait(text, { lang: lang || speechLang(), rate, onCaption: captionRef.current });
+      return speakAndWait(text, { lang: lang || speechLang(), rate: GUIDE_SPEECH_RATE, slow: true, onCaption: captionRef.current });
     };
 
     const hear = async (lang?: string) => {
       const once = async (code: string) => {
-        captionRef.current(code.startsWith('am') ? 'እያዳመጥኩ ነው…' : 'Listening…');
+        if (!document.querySelector('[role="alert"]')) {
+          captionRef.current(code.startsWith('am') ? 'እያዳመጥኩ ነው…' : 'Listening…');
+        }
         const transcript = await listenOnce(code);
-        if (cancelled || !transcript) return '';
+        if (cancelled || !transcript) {
+          if (!cancelled && !document.querySelector('[role="alert"]')) {
+            const note = listenFailureMessage(takeListenFailure(), currentLanguage());
+            if (note) captionRef.current(note);
+          }
+          return '';
+        }
         const blocked = unsupportedLanguageNotice(transcript, currentLanguage());
         if (blocked) {
           await say(blocked);
@@ -492,16 +522,25 @@ export function BlindConversation({
     };
 
     const readProblem = async (root: HTMLElement) => {
-      await wait(280);
-      const alert = root.querySelector('[role="alert"]');
-      const message = alert?.textContent?.replace(/\s+/g, ' ').trim() || '';
+      const started = Date.now();
+      let message = '';
+      let fix = '';
+      while (!cancelled && Date.now() - started < 4000) {
+        const alert = root.querySelector('[role="alert"]');
+        message = alert?.textContent?.replace(/\s+/g, ' ').trim() || '';
+        fix = alert?.getAttribute('data-voice-fix') || '';
+        if (message) break;
+        if (pageKeyRef.current !== pageKey) return '';
+        await wait(200);
+      }
       if (!message) return '';
       if (message !== lastProblemRef.current) {
         lastProblemRef.current = message;
-        problemSpeechRef.current = say(message);
+        await say(message);
+      } else {
+        await problemSpeechRef.current;
       }
-      await problemSpeechRef.current;
-      return alert?.getAttribute('data-voice-fix') || 'again';
+      return fix || 'again';
     };
 
     const repairFields = async (root: HTMLElement, fix: string) => {
@@ -523,59 +562,81 @@ export function BlindConversation({
       const root = document.getElementById('main-content');
       if (!root || cancelled) return;
 
-      if (languageOpen && startupStep !== 'control') {
-        await say('Say English, or say Amharic. እንግሊዝኛ ወይም አማርኛ ይበሉ።');
+      if (languageOpen && startupStep === 'language') {
+        await say(amharic() ? 'እንግሊዝኛ ወይም አማርኛ ይበሉ።' : 'Say English, or say Amharic.');
         for (let attempt = 0; attempt < 4 && !cancelled; attempt += 1) {
-          const [amharicChoice, englishChoice] = startupRecognitionLanguages();
-          const choice = (await hear(amharicChoice)) || (await hear(englishChoice));
-          const next = includesAny(choice, AMHARIC) ? 'am' : includesAny(choice, ENGLISH) ? 'en' : null;
-          if (!next) {
-            await say(amharic() ? 'እንግሊዝኛ ወይም አማርኛ ይበሉ።' : 'Please say English or Amharic.');
+          const choice = await listenForStartupLanguage((lang) => {
+            captionRef.current(lang === 'am' ? 'እያዳመጥኩ ነው…' : 'Listening…');
+          });
+          if (cancelled) return;
+          if (!choice) {
+            await say(startupListenRetry(takeListenFailure(), currentLanguage()));
             continue;
           }
-          languageRef.current = next;
-          onChooseLanguage(next);
+          languageRef.current = choice;
+          if (interactionSetupRef.current) languageReadyRef.current(choice);
+          else onChooseLanguage(choice);
           return;
         }
         return;
       }
 
-      if (languageOpen && startupStep === 'control') {
-        await say(controlPrompt(currentLanguage()));
+      if (languageOpen && startupStep === 'methods') {
+        await say(methodsPrompt(currentLanguage()));
         for (let attempt = 0; attempt < 4 && !cancelled; attempt += 1) {
           const heard = await hear(speechLang());
-          const choice = interpretControlChoice(heard);
-          if (!choice) {
-            await say(controlRetry(currentLanguage()));
+          const parsed = interpretInteractionUtterance(heard);
+          if (!parsed) {
+            await say(methodsRetry(currentLanguage()));
             continue;
           }
-          await say(controlConfirmation(choice, currentLanguage()));
-          onChooseControl(choice);
+          if (parsed.skip) {
+            skipInteractionRef.current();
+            return;
+          }
+          methodsChosenRef.current(parsed.choice);
           return;
         }
-        onContinueToSignIn();
+        return;
+      }
+
+      if (languageOpen && startupStep === 'head') {
+        const camera = cameraChoice();
+        await say(headPrompt(currentLanguage(), camera));
+        for (let attempt = 0; attempt < 4 && !cancelled; attempt += 1) {
+          const heard = await hear(speechLang());
+          const answer = interpretHeadConfirmation(heard);
+          if (!answer) {
+            await say(headRetry(currentLanguage()));
+            continue;
+          }
+          await say(answer === 'yes' ? headEnabledMessage(currentLanguage(), camera) : headDeclinedMessage(currentLanguage(), camera));
+          confirmHeadRef.current(answer === 'yes');
+          return;
+        }
         return;
       }
 
       if (pageKey === 'landing') {
-        await say('Find work from Ethiopia to the world. Say get started.', 'en-US');
+        const landingText = visibleHeading(root);
+        await say(landingText || (amharic()
+          ? 'ከኢትዮጵያ እስከ ዓለም ሥራ ይፈልጉ። ለመጀመር ጀምር ይበሉ።'
+          : 'Find work from Ethiopia to the world. Say get started.'));
         if (cancelled) return;
-        await say('ከኢትዮጵያ እስከ ዓለም ሥራ ይፈልጉ። ለመጀመር ጀምር ይበሉ።', 'am-ET');
         for (let attempt = 0; attempt < 4 && !cancelled; attempt += 1) {
           const command = await hear();
           if (wantsStart(command)) {
             onGetStarted();
             return;
           }
-          await say('Say get started. Or say ጀምር.', 'en-US');
+          await say(amharic() ? 'ለመጀመር ጀምር ይበሉ።' : 'Say get started.');
           if (cancelled) return;
-          await say('ለመጀመር ጀምር ይበሉ።', 'am-ET');
         }
         return;
       }
 
       if (pageKey === 'dashboard') {
-        const title = root.querySelector('h1')?.textContent?.replace(/\s+/g, ' ').trim() || page().dashboardHeadline;
+        const title = visibleHeading(root) || page().dashboardHeadline;
         await say(title);
         await say(amharic() ? 'ሥራ ለመፈለግ ስራ ፈልግ ይበሉ።' : 'Say find jobs.');
         const command = await hear();
@@ -591,72 +652,114 @@ export function BlindConversation({
           const status = engine.taskStatus(id);
           return (status === 'paused' || status === 'active') && Boolean(engine.pendingQuestion());
         });
-        let register = waitingId === 'registration';
+        const shownMode = () => visibleAccountMode(root);
+        let register = shownMode() === 'register' || waitingId === 'registration';
         let carry = '';
-        if (!waitingId) {
-          await say(amharic()
-            ? 'መግባት ወይም መመዝገብ ይችላሉ። ኢሜይል ወይም የይለፍ ቃል ቢሉኝ እረዳለሁ።'
-            : 'You can sign in or register. You can also tell me your email or your password.');
-          while (!cancelled && !carry) {
-            const choice = await hear();
+        let skipFieldPrompt = false;
+        let clicked: 'login' | 'register' | '' = '';
+        let accountTask = register ? 'registration' : 'sign-in';
+        const onAccountChoice = (event: Event) => {
+          const detail = (event as CustomEvent<string>).detail;
+          if (detail !== 'login' && detail !== 'register') return;
+          clicked = detail;
+          stopConversationRecognition();
+        };
+        window.addEventListener('allways-account-choice', onAccountChoice);
+        const speakOpenedForm = async (which: 'login' | 'register') => {
+          requestAccountForm(which);
+          const started = Date.now();
+          while (!cancelled && shownMode() !== which && Date.now() - started < 1200) {
+            await wait(50);
+          }
+          const visible = shownMode();
+          register = visible === 'register';
+          accountTask = register ? 'registration' : 'sign-in';
+          if (visible !== which) {
+            await say(accountSwitchMissed(currentLanguage()));
+            return;
+          }
+          engine.ensureTask(accountTask, accountTask);
+          await say(accountFormSpeech(visible, currentLanguage()));
+          skipFieldPrompt = true;
+        };
+        const chooseAccount = async () => {
+          await say(accountChoicePrompt(currentLanguage()));
+          while (!cancelled && !shownMode()) {
+            if (clicked) {
+              const which = clicked;
+              clicked = '';
+              await speakOpenedForm(which);
+              return;
+            }
+            const choice = carry || await hear();
+            carry = '';
             if (cancelled) return;
+            if (clicked) continue;
             if (!choice) {
-              await say(amharic() ? 'ግባ፣ ተመዝገብ፣ ኢሜይል ወይም የይለፍ ቃል ይበሉ።' : 'Say sign in, register, your email, or your password.');
+              await say(accountChoicePrompt(currentLanguage()));
               continue;
             }
-            const intent = interpretAccount(choice, phrases);
-            if (intent.register || intent.signIn || intent.email || intent.password || intent.name) {
-              register = intent.register && !intent.signIn ? true : intent.register;
-              if (intent.signIn && !intent.register) register = false;
-              carry = choice;
-              break;
+            const which = accountChoice(choice);
+            if (which) {
+              clicked = '';
+              const intent = interpretAccount(choice, phrases);
+              if (intent.name || intent.email) carry = choice;
+              await speakOpenedForm(which);
+              return;
             }
-            const echoed = intent.password ? passwordReceived(currentLanguage()) : choice;
-            await say(amharic()
-              ? `ሰማሁ። ${echoed}. ግባ ወይም ተመዝገብ ይበሉ። ኢሜይል ወይም የይለፍ ቃልም መናገር ይችላሉ።`
-              : `I heard ${echoed}. Say sign in or register. You can also say your email or your password.`);
+            await say(accountChoicePrompt(currentLanguage()));
           }
-          if (cancelled || !carry) return;
+        };
+        try {
+        const already = shownMode();
+        if (already) {
+          register = already === 'register';
+          accountTask = register ? 'registration' : 'sign-in';
+          engine.ensureTask(accountTask, accountTask);
+          await say(accountFormSpeech(already, currentLanguage()));
+          skipFieldPrompt = true;
+        } else {
+          await chooseAccount();
+          if (cancelled || !shownMode()) return;
         }
-        root.querySelector<HTMLButtonElement>(`[data-voice-choice="${register ? 'register' : 'login'}"]`)?.click();
-        await wait(350);
         const formRoot = document.getElementById('main-content');
         if (!formRoot || cancelled) return;
         const emailInput = () => formRoot.querySelector<HTMLInputElement>('input[type="email"]');
         const nameInput = () => formRoot.querySelector<HTMLInputElement>('input[autocomplete="name"]');
         const passwordInputs = () => [...formRoot.querySelectorAll<HTMLInputElement>('input[type="password"]')];
-        let maybePassword = '';
         let lastTopic: 'email' | 'password' | 'name' | '' = '';
-        let pending: { kind: 'email' | 'password' | 'name'; value: string } | null = null;
+        let held = emptyHeldAccount();
+        let confirming: 'email' | 'password' | 'name' | '' = '';
         const confirmLine = (kind: 'email' | 'password' | 'name', value: string) => {
-          if (kind === 'password') {
-            return amharic()
-              ? `${passwordReceived('am')} ትክክል ከሆነ አዎ ይበሉ። ካልሆነ ትክክል አይደለም ይበሉ።`
-              : `${passwordReceived('en')} Say yes if that is right. If not, say it is not correct.`;
-          }
+          if (kind === 'password') return passwordBoxFilled(currentLanguage());
           const spoken = kind === 'email' ? speakableEmail(value, amharic()) : value;
-          if (amharic()) {
-            const lead = kind === 'email' ? 'ኢሜይልዎን ሰማሁ' : 'ስምዎን ሰማሁ';
-            return `${lead}። ${spoken}. ትክክል ከሆነ አዎ ይበሉ። ካልሆነ ትክክል አይደለም ይበሉ።`;
-          }
-          const lead = kind === 'email' ? 'I heard your email' : 'I heard your name';
-          return `${lead}, ${spoken}. Say yes if that is right. If not, say it is not correct.`;
+          return amharic() ? `${spoken}። ትክክል ነው?` : `${spoken}. Is that right?`;
         };
-        const savePending = () => {
-          if (!pending) return;
-          if (pending.kind === 'email') {
+        const saveConfirming = () => {
+          if (!confirming || !held[confirming]) return;
+          const kind = confirming;
+          const value = held[kind];
+          if (kind === 'email') {
             const email = emailInput();
-            if (email) setFieldValue(email, pending.value);
-          } else if (pending.kind === 'password') {
+            if (email) setFieldValue(email, value);
+          } else if (kind === 'password') {
             const fields = passwordInputs();
-            if (fields[0]) setFieldValue(fields[0], pending.value);
+            if (fields[0]) setFieldValue(fields[0], value);
           } else {
             const name = nameInput();
-            if (name) setFieldValue(name, pending.value);
+            if (name) setFieldValue(name, value);
           }
-          lastTopic = pending.kind;
-          engine.completeQuestion(accountTask, pending.kind, pending.kind === 'password' ? '' : pending.value);
-          pending = null;
+          lastTopic = kind;
+          engine.completeQuestion(accountTask, kind, kind === 'password' ? '' : value);
+          held = acceptHeldConfirmation(held, kind);
+          confirming = '';
+        };
+        const confirmNextHeld = async () => {
+          const kind = firstHeldField(held);
+          confirming = kind;
+          if (!kind) return false;
+          await say(confirmLine(kind, held[kind]));
+          return true;
         };
         const nextNeed = () => {
           const email = emailInput();
@@ -665,22 +768,31 @@ export function BlindConversation({
           const emailReady = Boolean(email && emailLooksValid(email.value));
           const passwordReady = Boolean(passwords[0]?.value.trim());
           const nameReady = !register || !name || Boolean(name.value.trim());
-          if (!emailReady) return amharic() ? 'እሺ። ኢሜይልዎን ገና እየጠበቅኩ ነው።' : 'Okay. I still need your email.';
-          if (!passwordReady) return amharic() ? 'እሺ። የይለፍ ቃልዎን ገና እየጠበቅኩ ነው።' : 'Okay. I still need your password.';
-          if (!nameReady) return amharic() ? 'እሺ። ሙሉ ስምዎን ይናገሩ።' : 'Okay. Tell me your full name.';
-          if (passwords[1] && !passwords[1].value.trim()) return amharic() ? 'ተመሳሳይ የይለፍ ቃል ከሆነ አዎ ይበሉ።' : 'If the password is the same, say yes.';
-          return amharic() ? 'ሁለቱም ዝግጁ ናቸው። ለመግባት ግባ ይበሉ። ለማስተካከል ትክክል አይደለም ይበሉ።' : 'Both are ready. Say sign in. If something is wrong, say it is not correct.';
+          if (register && !nameReady) return amharic() ? 'ሙሉ ስምዎን ይንገሩኝ።' : 'Tell me your full name.';
+          if (!emailReady) return amharic() ? 'ኢሜይልዎን ይንገሩኝ።' : 'Tell me your email.';
+          if (!passwordReady) return passwordQuestion(currentLanguage());
+          if (passwords[1] && !passwords[1].value.trim()) return amharic() ? 'ተመሳሳይ የይለፍ ቃልን በማረጋገጫው ሳጥን ይጻፉ።' : 'Type the same password in Confirm password.';
+          return register
+            ? (amharic() ? 'ዝግጁ ነው። መመዝገብ እፈልጋለሁ ይበሉ።' : 'Ready. Say I want to register.')
+            : (amharic() ? 'ዝግጁ ነው። መግባት እፈልጋለሁ ይበሉ።' : 'Ready. Say I want to log in.');
         };
-        const accountTask = register ? 'registration' : 'sign-in';
         engine.ensureTask(accountTask, accountTask);
         const syncAccountQuestion = () => {
           if (engine.taskStatus(accountTask) !== 'active') return;
           const email = emailInput();
           const passwords = passwordInputs();
           const name = nameInput();
+          if (register && name && !name.value.trim()) {
+            const savedName = engine.savedAnswer(accountTask, 'name');
+            if (savedName) setFieldValue(name, savedName);
+          }
           if (email && !email.value.trim()) {
             const savedEmail = engine.savedAnswer(accountTask, 'email');
             if (savedEmail) setFieldValue(email, savedEmail);
+          }
+          if (register && name && !name.value.trim()) {
+            engine.ask(accountTask, { id: 'name', prompt: nameQuestion(currentLanguage()), field: 'name' });
+            return;
           }
           if (!email || !emailLooksValid(email.value)) {
             engine.ask(accountTask, { id: 'email', prompt: emailQuestion(currentLanguage()), field: 'email' });
@@ -692,13 +804,25 @@ export function BlindConversation({
             return;
           }
           if (!engine.isCompleted(accountTask, 'password')) engine.completeQuestion(accountTask, 'password', '');
-          if (register && name && !name.value.trim()) {
-            engine.ask(accountTask, { id: 'name', prompt: nameQuestion(currentLanguage()), field: 'name' });
-          } else if (register && name?.value.trim() && !engine.isCompleted(accountTask, 'name')) {
+          if (register && name?.value.trim() && !engine.isCompleted(accountTask, 'name')) {
             engine.completeQuestion(accountTask, 'name', name.value);
           }
         };
         while (!cancelled) {
+          const visibleNow = shownMode();
+          if (!visibleNow) {
+            await chooseAccount();
+            if (cancelled || !shownMode()) return;
+            continue;
+          }
+          register = visibleNow === 'register';
+          accountTask = register ? 'registration' : 'sign-in';
+          if (clicked) {
+            const which = clicked;
+            clicked = '';
+            await speakOpenedForm(which);
+            continue;
+          }
           if (engine.taskStatus(accountTask) === 'cancelled') {
             const heardRestart = carry || await hear();
             carry = '';
@@ -721,16 +845,38 @@ export function BlindConversation({
           let heardRaw = carry;
           carry = '';
           if (!heardRaw) {
-            const askEmail = !repeated
+            const holdPrompt = skipFieldPrompt;
+            skipFieldPrompt = false;
+            const askName = !holdPrompt && !confirming && register && !nameInput()?.value.trim();
+            const askEmail = !holdPrompt
+              && !confirming
+              && !askName
+              && !repeated
               && engine.taskStatus(accountTask) === 'active'
               && engine.pendingQuestion()?.id === 'email'
               && !emailLooksValid(emailInput()?.value || '');
-            if (askEmail) await say(emailQuestion(currentLanguage()));
+            const problem = formRoot.querySelector('[role="alert"]')?.textContent?.replace(/\s+/g, ' ').trim() || '';
+            if (problem) {
+              if (problem !== lastProblemRef.current) {
+                lastProblemRef.current = problem;
+                await say(problem);
+              }
+            } else if (askName) await say(amharic() ? 'ሙሉ ስምዎን ይናገሩ።' : 'Tell me your full name.');
+            else if (askEmail) await say(emailQuestion(currentLanguage()));
             heardRaw = await hear();
           }
           if (cancelled) return;
           if (!heardRaw) {
-            await say(amharic() ? 'እየሰማሁ ነው። ኢሜይል ወይም የይለፍ ቃል ይናገሩ።' : 'I am listening. Tell me your email or your password.');
+            if (clicked || !shownMode()) continue;
+            const problem = formRoot.querySelector('[role="alert"]')?.textContent?.replace(/\s+/g, ' ').trim() || '';
+            if (problem) {
+              if (problem !== lastProblemRef.current) {
+                lastProblemRef.current = problem;
+                await say(problem);
+              }
+              continue;
+            }
+            await say(amharic() ? 'እየሰማሁ ነው።' : 'I am listening.');
             continue;
           }
           const routed = await routeUtterance(heardRaw);
@@ -738,30 +884,42 @@ export function BlindConversation({
           if (routed.kind === 'stop') continue;
           if (routed.kind !== 'forward') continue;
           const heard = routed.text;
+          const spokenChoice = accountChoice(heard);
+          const visibleMode = shownMode();
+          if (spokenChoice && spokenChoice !== visibleMode) {
+            clicked = '';
+            const switching = interpretAccount(heard, phrases);
+            if (switching.name || switching.email) carry = heard;
+            await speakOpenedForm(spokenChoice);
+            continue;
+          }
           const intent = interpretAccount(heard, phrases);
-          if (maybePassword) {
-            const offered = maybePassword;
-            maybePassword = '';
-            if (intent.yes && !intent.email && !intent.password) {
-              const fields = passwordInputs();
-              if (fields[0]) setFieldValue(fields[0], offered);
-              const emailReadyNow = Boolean(emailInput() && emailLooksValid(emailInput()?.value || ''));
-              await say(amharic()
-                ? `አመሰግናለሁ። የይለፍ ቃልዎን ተቀብዬአለሁ። ${emailReadyNow ? 'ለመግባት ግባ ይበሉ።' : 'ኢሜይልዎን ገና እየጠበቅኩ ነው።'}`
-                : `${passwordReceived('en')} ${emailReadyNow ? 'Say sign in when you are ready.' : 'I still need your email.'}`);
-              continue;
-            }
-            if (!intent.email && !intent.password && !intent.correction && !intent.clearEmail && !intent.clearPassword) {
-              await say(amharic()
-                ? 'እሺ። ያ የይለፍ ቃል አይደለም። ኢሜይልዎን ወይም የይለፍ ቃልዎን ይናገሩ።'
-                : 'Okay. I will not use that as the password. Tell me your email or your password.');
-              continue;
-            }
+          if (register && nameInput() && !nameInput()?.value.trim() && !intent.name && !intent.email && !intent.password) {
+            const spokenName = cleanSpokenName(heard);
+            if (spokenName) intent.name = spokenName;
+          }
+          let passwordNoted = false;
+          if (intent.password) {
+            const fields = passwordInputs();
+            if (fields[0]) setFieldValue(fields[0], intent.password);
+            intent.password = '';
+            passwordNoted = true;
+          }
+          if (intent.emailUnclear) {
+            held = releaseHeldField(retainAccountFields(held, { ...intent, email: '' }), 'email');
+            if (confirming === 'email') confirming = '';
+            await say(amharic()
+              ? 'ያንን ኢሜይል ማረጋገጥ አልቻልኩም። እባክዎ እንደገና ይናገሩ።'
+              : 'I could not confirm that email. Please say it again.');
+            if (await confirmNextHeld()) continue;
+            continue;
           }
           if (intent.correction && !intent.clearEmail && !intent.clearPassword && !intent.clearName && !intent.email && !intent.password && !intent.name) {
-            if (pending) {
-              pending = null;
+            if (confirming) {
+              held = releaseHeldField(held, confirming);
+              confirming = '';
               await say(amharic() ? 'እሺ። ትክክል አይደለም። አጽድቻለሁ። እንደገና ይናገሩ።' : 'Okay. That is not correct. I cleared it. Say it again.');
+              if (await confirmNextHeld()) continue;
               continue;
             }
             const topic = lastTopic as string;
@@ -770,33 +928,38 @@ export function BlindConversation({
             else intent.clearEmail = true;
           }
           const notes: string[] = [];
-          if (intent.clearEmail) {
+          if (passwordNoted) notes.push(passwordBoxFilled(currentLanguage()));
+          const confirmingField = confirming === 'name' || confirming === 'email' ? confirming : '';
+          const beforeFields = { name: nameInput()?.value || '', email: emailInput()?.value || '' };
+          const cleared = applyAccountFields(beforeFields, { ...intent, name: '', email: '' }, confirmingField);
+          if (intent.clearEmail || cleared.email !== beforeFields.email) {
             const email = emailInput();
-            if (email) setFieldValue(email, '');
-            if (pending?.kind === 'email') pending = null;
+            if (email) setFieldValue(email, cleared.email);
+            held = releaseHeldField(held, 'email');
+            if (confirming === 'email') confirming = '';
             notes.push(amharic() ? 'እሺ። ኢሜይሉ ትክክል አይደለም። አጽድቻለሁ።' : 'Okay. That email is not correct. I cleared it.');
           }
           if (intent.clearPassword) {
             passwordInputs().forEach((field) => setFieldValue(field, ''));
-            if (pending?.kind === 'password') pending = null;
+            held = releaseHeldField(held, 'password');
+            if (confirming === 'password') confirming = '';
             notes.push(amharic() ? 'እሺ። የይለፍ ቃሉን አጽድቻለሁ።' : 'Okay. I cleared the password.');
           }
-          if (intent.clearName) {
+          if (intent.clearName || cleared.name !== beforeFields.name) {
             const name = nameInput();
-            if (name) setFieldValue(name, '');
-            if (pending?.kind === 'name') pending = null;
+            if (name) setFieldValue(name, cleared.name);
+            held = releaseHeldField(held, 'name');
+            if (confirming === 'name') confirming = '';
             notes.push(amharic() ? 'እሺ። ስሙን አጽድቻለሁ።' : 'Okay. I cleared the name.');
           }
           if (intent.email || intent.password || intent.name) {
             if (notes.length) await say(notes.join(' '));
-            const kind = intent.email ? 'email' : intent.password ? 'password' : 'name';
-            const value = intent.email || intent.password || intent.name;
-            pending = { kind, value };
-            await say(confirmLine(kind, value));
-            continue;
+            held = retainAccountFields(held, intent);
+            if (await confirmNextHeld()) continue;
           }
-          if (pending && intent.yes) {
-            savePending();
+          if (confirming && intent.yes && !intent.email && !intent.password && !intent.name) {
+            saveConfirming();
+            if (await confirmNextHeld()) continue;
             if (!intent.signIn && !intent.register) {
               await say(nextNeed());
               continue;
@@ -809,31 +972,40 @@ export function BlindConversation({
           const passwordReady = Boolean(passwords[0]?.value.trim());
           const nameReady = !register || !name || Boolean(name.value.trim());
           if (!intent.clearEmail && !intent.clearPassword && !intent.clearName && !intent.signIn && !intent.register && !intent.yes) {
-            maybePassword = heard.trim();
-            await say(amharic()
-              ? 'ይህ ኢሜይል አይደለም። የይለፍ ቃልዎ ከሆነ አዎ ይበሉ። ኢሜይል ከሆነ ኢሜይሉን ይናገሩ።'
-              : 'That is not an email. If it is your password, say yes. Or tell me your email.');
+            if (confirming && held[confirming]) {
+              await say(confirmLine(confirming, held[confirming]));
+              continue;
+            }
+            await say(notes.length ? `${notes.join(' ')} ${nextNeed()}` : nextNeed());
             continue;
           }
-          if (passwords[1] && passwordReady && !passwords[1].value.trim() && intent.yes && !pending) {
-            setFieldValue(passwords[1], passwords[0].value);
-          }
           const confirmReady = !passwords[1] || Boolean(passwords[1].value.trim());
-          const ready = emailReady && passwordReady && nameReady && confirmReady && !pending;
+          const ready = emailReady && passwordReady && nameReady && confirmReady && !confirming && !firstHeldField(held);
           if ((intent.signIn || intent.register || (intent.yes && ready)) && ready) {
             if (notes.length) await say(notes.join(' '));
             formRoot.querySelector<HTMLButtonElement>('button[type="submit"]')?.click();
             const fix = await readProblem(formRoot);
-            if (!fix || cancelled) return;
+            if (cancelled || pageKeyRef.current !== 'login') return;
+            if (!fix) {
+              await say(nextNeed());
+              continue;
+            }
             if (fix === 'email' && email) setFieldValue(email, '');
             if (fix === 'password' || fix === 'confirm') passwords.forEach((field) => setFieldValue(field, ''));
-            await say(amharic()
-              ? 'ያ አልተሳካም። ኢሜይሉን ወይም የይለፍ ቃሉን እንደገና ይናገሩ።'
-              : 'That did not work. Tell me the email or the password again.');
+            await say(amharic() ? 'እንደገና ይናገሩ።' : 'Please say it again.');
             continue;
           }
-          if (notes.length) notes.push(nextNeed());
+          if (notes.length) {
+            const waiting = firstHeldField(held);
+            if (waiting) {
+              confirming = waiting;
+              notes.push(confirmLine(waiting, held[waiting]));
+            } else notes.push(nextNeed());
+          }
           await say(notes.length ? notes.join(' ') : nextNeed());
+        }
+        } finally {
+          window.removeEventListener('allways-account-choice', onAccountChoice);
         }
         return;
       }
@@ -898,9 +1070,10 @@ export function BlindConversation({
           const searchInput = root.querySelector<HTMLInputElement>('#opportunity-search');
           const totalJobs = jobButtons().length;
           const ignore = ['the', 'a', 'an', 'job', 'jobs', 'work', 'want', 'i', 'my', 'please', 'ሥራ', 'ስራ', 'እፈልጋለሁ', 'እፈልጋለው', 'ፈልጌ', 'ነው', 'አንድ'];
+          const jobsHeading = visibleHeading(root);
           await say(amharic()
-            ? 'ምን ዓይነት ሥራ ይፈልጋሉ? የሥራውን ስም ይናገሩ።'
-            : 'What job do you want? Say the kind of work.');
+            ? `${jobsHeading ? `${jobsHeading}. ` : ''}ምን ዓይነት ሥራ ይፈልጋሉ? የሥራውን ስም ይናገሩ።`
+            : `${jobsHeading ? `${jobsHeading}. ` : ''}What job do you want? Say the kind of work.`);
           let narrowed = false;
           for (let attempt = 0; attempt < 4 && !cancelled && !narrowed; attempt += 1) {
             const request = await hearJob();
@@ -1150,7 +1323,6 @@ export function BlindConversation({
   }, [
     enabled,
     languageOpen,
-    onChooseControl,
     onChooseLanguage,
     onContinueToSignIn,
     startupStep,
@@ -1170,7 +1342,8 @@ export function BlindConversation({
       captionRef.current(text);
       void speakAndWait(text, {
         lang: getLanguageOption(languageRef.current).speechLang,
-        rate: rateRef.current,
+        rate: GUIDE_SPEECH_RATE,
+        slow: true,
         onCaption: captionRef.current,
       });
     };
@@ -1189,7 +1362,6 @@ export function BlindConversation({
     const announce = () => {
       window.clearTimeout(timer);
       timer = window.setTimeout(() => {
-        if (guideActiveRef.current) return;
         const message = document.querySelector('[role="alert"]')?.textContent?.replace(/\s+/g, ' ').trim() || '';
         if (!message) {
           lastProblemRef.current = '';
@@ -1197,9 +1369,11 @@ export function BlindConversation({
         }
         if (message === lastProblemRef.current) return;
         lastProblemRef.current = message;
+        stopSpeakingAloud();
         problemSpeechRef.current = speakAndWait(message, {
           lang: getLanguageOption(languageRef.current).speechLang,
-          rate,
+          rate: GUIDE_SPEECH_RATE,
+          slow: true,
           onCaption: captionRef.current,
         });
       }, 200);

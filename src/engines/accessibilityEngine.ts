@@ -79,6 +79,7 @@ export function detectSpeechSupport(): SpeechSupportInfo {
 
 let speechToken = 0;
 let currentAudio: HTMLAudioElement | null = null;
+let settleCurrentAudio: ((ok: boolean) => void) | null = null;
 const speechWaiters = new Set<() => void>();
 
 function voicesFor(lang: string): SpeechSynthesisVoice | null {
@@ -128,12 +129,16 @@ armAudioUnlock();
 
 function stopCurrentAudio() {
   const audio = currentAudio;
+  const settle = settleCurrentAudio;
   currentAudio = null;
-  if (!audio) return;
-  audio.onended = null;
-  audio.onerror = null;
-  audio.pause();
-  audio.src = '';
+  settleCurrentAudio = null;
+  if (audio) {
+    audio.onended = null;
+    audio.onerror = null;
+    audio.pause();
+    audio.src = '';
+  }
+  settle?.(false);
 }
 
 function playAudioUrl(url: string, rate: number, token: number): Promise<boolean> {
@@ -158,9 +163,11 @@ function playAudioUrl(url: string, rate: number, token: number): Promise<boolean
     const finish = (ok: boolean) => {
       if (settled) return;
       settled = true;
+      if (settleCurrentAudio === finish) settleCurrentAudio = null;
       if (currentAudio === audio) currentAudio = null;
       resolve(ok && token === speechToken);
     };
+    settleCurrentAudio = finish;
     audio.onended = () => finish(token === speechToken);
     audio.onerror = () => finish(false);
     audio.src = url;
@@ -175,12 +182,100 @@ function playAudioUrl(url: string, rate: number, token: number): Promise<boolean
   });
 }
 
-async function speakWithAudio(text: string, lang: string, rate: number, token: number): Promise<boolean> {
+export const GUIDE_SPEECH_RATE = 0.85;
+export const ENGLISH_FINAL_GRACE_MS = 900;
+export const AMHARIC_END_SILENCE_MS = 1400;
+export const AMHARIC_NO_SPEECH_MS = 8000;
+export const AMHARIC_STT_TIMEOUT_MS = 4000;
+
+export type ConversationListenFailure =
+  | 'no-speech'
+  | 'permission-denied'
+  | 'unavailable'
+  | 'timed-out'
+  | 'cancelled';
+
+let conversationListenFailure: ConversationListenFailure | null = null;
+let amharicSttTimeoutMs = AMHARIC_STT_TIMEOUT_MS;
+let abortAmharicTranscription: (() => void) | null = null;
+
+export function setAmharicSttTimeoutForTests(ms: number): void {
+  amharicSttTimeoutMs = ms;
+}
+
+export function peekListenFailure(): ConversationListenFailure | null {
+  return conversationListenFailure;
+}
+
+export function takeListenFailure(): ConversationListenFailure | null {
+  const current = conversationListenFailure;
+  conversationListenFailure = null;
+  return current;
+}
+
+export function listenFailureMessage(
+  failure: ConversationListenFailure | null,
+  language: 'en' | 'am',
+): string {
+  const amharic = language === 'am';
+  if (failure === 'no-speech') return amharic ? 'ምንም ንግግር አልተሰማም።' : 'No speech was heard.';
+  if (failure === 'permission-denied') {
+    return amharic
+      ? 'የማይክሮፎን ፈቃድ አልተሰጠም። በጽሑፍ መቀጠል ይችላሉ።'
+      : 'Microphone permission was denied. You can continue by typing.';
+  }
+  if (failure === 'unavailable') {
+    return amharic
+      ? 'የድምፅ ማወቂያ አይገኝም። በጽሑፍ መቀጠል ይችላሉ።'
+      : 'Voice recognition is unavailable. You can continue by typing.';
+  }
+  if (failure === 'timed-out') {
+    return amharic
+      ? 'ጽሑፉ በሰዓቱ አልደረሰም። እባክዎ እንደገና ይናገሩ።'
+      : 'The transcript did not arrive in time. Please try again.';
+  }
+  if (failure === 'cancelled') return amharic ? 'ማዳመጥ ቆሟል።' : 'Listening stopped.';
+  return '';
+}
+
+function noteListenFailure(next: ConversationListenFailure): void {
+  conversationListenFailure = next;
+}
+
+function clearListenFailure(): void {
+  conversationListenFailure = null;
+}
+
+export function mergeFinalTranscript(committed: string, incoming: string): string {
+  const next = incoming.replace(/\s+/g, ' ').trim();
+  if (!next) return committed;
+  if (!committed || next === committed) return next;
+  if (next.startsWith(committed)) return next;
+  return `${committed} ${next}`;
+}
+
+export function amharicRecordingShouldStop(input: {
+  heard: boolean;
+  silenceMs: number;
+  elapsedMs: number;
+  maxMs: number;
+}): boolean {
+  if (input.heard && input.silenceMs > AMHARIC_END_SILENCE_MS) return true;
+  if (input.elapsedMs > input.maxMs) return true;
+  return !input.heard && input.elapsedMs > AMHARIC_NO_SPEECH_MS;
+}
+
+export function ttsRequest(lang: string, text: string, slow = false): string {
+  const voiceCode = lang.toLowerCase().startsWith('am') ? 'am' : 'en';
+  const useSlow = voiceCode === 'am' || slow;
+  return `/api/tts?lang=${voiceCode}&slow=${useSlow ? '1' : '0'}&text=${encodeURIComponent(text)}`;
+}
+
+async function speakWithAudio(text: string, lang: string, rate: number, token: number, slow = false): Promise<boolean> {
   const voiceCode = lang.toLowerCase().startsWith('am') ? 'am' : 'en';
   for (const part of chunkText(text)) {
     if (token !== speechToken) return false;
-    const slow = voiceCode === 'am' ? '1' : '0';
-    const url = `/api/tts?lang=${voiceCode}&slow=${slow}&text=${encodeURIComponent(part)}`;
+    const url = ttsRequest(voiceCode, part, slow);
     const played = await playAudioUrl(url, rate, token);
     if (!played) return false;
   }
@@ -272,6 +367,7 @@ export function speakAloud(
     onStart?: () => void;
     onEnd?: () => void;
     onCaption?: (captionText: string) => void;
+    slow?: boolean;
   }
 ): boolean {
   options?.onCaption?.(text);
@@ -291,6 +387,7 @@ export function speakAloud(
   options?.onStart?.();
   const lang = options?.lang;
   const rate = options?.rate ?? 1;
+  const slow = options?.slow === true;
   const done = () => {
     if (token === speechToken) options?.onEnd?.();
   };
@@ -299,7 +396,7 @@ export function speakAloud(
     releaseRecognitionForSpeech();
     try {
     const amharicVoice = (lang || '').toLowerCase().startsWith('am');
-    const played = await speakWithAudio(text, lang || 'en-US', rate, token);
+    const played = await speakWithAudio(text, lang || 'en-US', rate, token, slow);
     if (token !== speechToken) return;
     if (played) {
       done();
@@ -308,7 +405,7 @@ export function speakAloud(
     if (amharicVoice) {
       const stillCurrent = await whenSomeoneTaps(token);
       if (!stillCurrent) return;
-      const playedAfterTap = await speakWithAudio(text, lang || 'am-ET', rate, token);
+      const playedAfterTap = await speakWithAudio(text, lang || 'am-ET', rate, token, slow);
       if (token === speechToken) done();
       return;
     }
@@ -316,7 +413,7 @@ export function speakAloud(
     if (status === 'blocked' && token === speechToken) {
       const stillCurrent = await whenSomeoneTaps(token);
       if (!stillCurrent) return;
-      const playedAfterTap = await speakWithAudio(text, lang || 'en-US', rate, token);
+      const playedAfterTap = await speakWithAudio(text, lang || 'en-US', rate, token, slow);
       if (token !== speechToken) return;
       if (playedAfterTap) {
         done();
@@ -338,7 +435,7 @@ let activeSpeech = '';
 
 export function speakAndWait(
   text: string,
-  options?: { rate?: number; lang?: string; onCaption?: (captionText: string) => void },
+  options?: { rate?: number; lang?: string; onCaption?: (captionText: string) => void; slow?: boolean },
 ): Promise<void> {
   const spoken = text.trim();
   if (!spoken) return Promise.resolve();
@@ -402,12 +499,12 @@ function downsampleTo16k(chunks: Float32Array[], inputRate: number): ArrayBuffer
 let stopRecording: (() => void) | null = null;
 let captureGeneration = 0;
 let recordCaptureForTests: ((maxMs: number) => Promise<ArrayBuffer | null>) | null = null;
-let transcribeCaptureForTests: ((audio: ArrayBuffer) => Promise<string>) | null = null;
+let transcribeCaptureForTests: ((audio: ArrayBuffer, signal?: AbortSignal) => Promise<string>) | null = null;
 let releaseCaptureForTests: (() => void) | null = null;
 
 export function setAmharicCaptureForTests(hooks: {
   record: ((maxMs: number) => Promise<ArrayBuffer | null>) | null;
-  transcribe: ((audio: ArrayBuffer) => Promise<string>) | null;
+  transcribe: ((audio: ArrayBuffer, signal?: AbortSignal) => Promise<string>) | null;
   release?: (() => void) | null;
 }): void {
   recordCaptureForTests = hooks.record;
@@ -523,7 +620,7 @@ function recordSpeechPcm(maxMs: number): Promise<ArrayBuffer | null> {
             silence += (input.length / (context.sampleRate || 48000)) * 1000;
           }
           const elapsed = performance.now() - started;
-          if ((heard && silence > 800) || elapsed > maxMs || (!heard && elapsed > 8000)) {
+          if (amharicRecordingShouldStop({ heard, silenceMs: silence, elapsedMs: elapsed, maxMs })) {
             finish(heard ? downsampleTo16k(chunks, context.sampleRate || 48000) : null);
           }
         };
@@ -537,11 +634,12 @@ function recordSpeechPcm(maxMs: number): Promise<ArrayBuffer | null> {
   });
 }
 
-async function transcribeAmharic(audio: ArrayBuffer): Promise<string> {
+async function transcribeAmharic(audio: ArrayBuffer, signal: AbortSignal): Promise<string> {
   const response = await fetch('/api/stt?lang=am-ET', {
     method: 'POST',
     headers: { 'Content-Type': 'application/octet-stream' },
     body: audio,
+    signal,
   });
   if (!response.ok) return '';
   const data = (await response.json()) as { transcript?: string };
@@ -576,26 +674,68 @@ function captureAmharic(maxMs: number): Promise<ArrayBuffer | null> {
   });
 }
 
-async function listenAmharic(timeoutMs: number, epoch: number): Promise<string> {
+async function listenAmharic(timeoutMs: number, epoch: number, captures = 2): Promise<string> {
   const generation = captureGeneration;
   releaseRecognitionForSpeech();
   await waitForQuiet(450);
-  for (let attempt = 0; attempt < 2; attempt += 1) {
+  let timedOut = false;
+  for (let attempt = 0; attempt < captures; attempt += 1) {
     if (epoch !== conversationEpoch || generation !== captureGeneration || microphoneOwner() !== 'conversation') return '';
     const audio = await captureAmharic(Math.min(timeoutMs, 10000));
     if (epoch !== conversationEpoch || generation !== captureGeneration || microphoneOwner() !== 'conversation') return '';
     if (!audio || audio.byteLength < 3200) continue;
     try {
-      const transcript = transcribeCaptureForTests
-        ? await transcribeCaptureForTests(audio)
-        : await transcribeAmharic(audio);
+      const outcome = await transcribeBounded(audio, epoch);
       if (epoch !== conversationEpoch || generation !== captureGeneration || microphoneOwner() !== 'conversation') return '';
-      if (transcript) return transcript;
+      if (outcome.text) {
+        clearListenFailure();
+        return outcome.text;
+      }
+      if (outcome.timedOut) timedOut = true;
     } catch {
       return '';
     }
   }
+  if (epoch === conversationEpoch) noteListenFailure(timedOut ? 'timed-out' : 'no-speech');
   return '';
+}
+
+async function transcribeBounded(
+  audio: ArrayBuffer,
+  epoch: number,
+): Promise<{ text: string; timedOut: boolean }> {
+  const controller = new AbortController();
+  const abort = () => {
+    if (!controller.signal.aborted) controller.abort();
+  };
+  abortAmharicTranscription = abort;
+  let timer = 0;
+  let expired = false;
+  const pending = (
+    transcribeCaptureForTests
+      ? transcribeCaptureForTests(audio, controller.signal)
+      : transcribeAmharic(audio, controller.signal)
+  ).then(
+    (text) => (epoch !== conversationEpoch || controller.signal.aborted ? '' : (text || '').trim()),
+    () => '',
+  );
+  try {
+    const text = await new Promise<string>((resolve) => {
+      const finish = (value: string) => resolve(value);
+      timer = window.setTimeout(() => {
+        expired = true;
+        abort();
+        finish('');
+      }, amharicSttTimeoutMs);
+      controller.signal.addEventListener('abort', () => finish(''));
+      pending.then((value) => finish(value));
+    });
+    if (epoch !== conversationEpoch) return { text: '', timedOut: false };
+    return { text, timedOut: expired && !text };
+  } finally {
+    window.clearTimeout(timer);
+    if (abortAmharicTranscription === abort) abortAmharicTranscription = null;
+  }
 }
 
 function waitForQuiet(ms: number) {
@@ -605,22 +745,30 @@ function waitForQuiet(ms: number) {
 let conversationEpoch = 0;
 let conversationSession: VoiceInputSession | null = null;
 
+let releaseEnglishListen: (() => void) | null = null;
+
 export function stopConversationRecognition(): void {
+  noteListenFailure('cancelled');
   conversationEpoch += 1;
+  abortAmharicTranscription?.();
   const session = conversationSession;
   conversationSession = null;
   if (session?.isCurrent()) session.stop();
   releaseMicrophone('conversation');
   wakeMicrophoneWaiters();
+  const release = releaseEnglishListen;
+  releaseEnglishListen = null;
+  release?.();
 }
 
-export function listenOnce(lang: string, timeoutMs = 12000): Promise<string> {
+export function listenOnce(lang: string, timeoutMs = 12000, captures = 2): Promise<string> {
+  clearListenFailure();
   const epoch = conversationEpoch;
   const cancelled = () => epoch !== conversationEpoch;
   return waitForMicrophone('conversation', cancelled).then((ready) => {
     if (!ready || cancelled()) return '';
     const capture = lang.toLowerCase().startsWith('am')
-      ? listenAmharic(timeoutMs, epoch)
+      ? listenAmharic(timeoutMs, epoch, captures)
       : listenEnglish(lang, timeoutMs, epoch);
     return capture.finally(() => {
       if (epoch === conversationEpoch) releaseMicrophone('conversation');
@@ -630,54 +778,97 @@ export function listenOnce(lang: string, timeoutMs = 12000): Promise<string> {
 
 function listenEnglish(lang: string, timeoutMs: number, epoch: number): Promise<string> {
   return new Promise((resolve) => {
-    window.setTimeout(() => {
-      if (epoch !== conversationEpoch) {
-        resolve('');
+    let settled = false;
+    let restarts = 0;
+    let session: VoiceInputSession | null = null;
+    let committed = '';
+    let startupTimer = 0;
+    let timeoutTimer = 0;
+    let graceTimer = 0;
+    let restartTimer = 0;
+    const clearTimers = () => {
+      window.clearTimeout(startupTimer);
+      window.clearTimeout(timeoutTimer);
+      window.clearTimeout(graceTimer);
+      window.clearTimeout(restartTimer);
+      startupTimer = 0;
+      timeoutTimer = 0;
+      graceTimer = 0;
+      restartTimer = 0;
+    };
+    let cancelListen = () => {};
+    const finish = (value: string) => {
+      if (settled) return;
+      settled = true;
+      clearTimers();
+      if (releaseEnglishListen === cancelListen) releaseEnglishListen = null;
+      if (conversationSession === session) conversationSession = null;
+      if (session?.isCurrent()) session.stop();
+      if (epoch === conversationEpoch) {
+        if (value) clearListenFailure();
+        else if (!conversationListenFailure) noteListenFailure('no-speech');
+      }
+      resolve(value);
+    };
+    cancelListen = () => finish('');
+    const armGrace = () => {
+      window.clearTimeout(graceTimer);
+      graceTimer = window.setTimeout(() => {
+        graceTimer = 0;
+        if (settled || epoch !== conversationEpoch) return;
+        finish(committed);
+      }, ENGLISH_FINAL_GRACE_MS);
+    };
+    const scheduleRestart = () => {
+      if (restartTimer || settled) return;
+      restartTimer = window.setTimeout(() => {
+        restartTimer = 0;
+        if (settled || epoch !== conversationEpoch || !session?.isCurrent()) return;
+        if (!session.start()) finish(committed);
+      }, 250);
+    };
+    releaseEnglishListen = cancelListen;
+    startupTimer = window.setTimeout(() => {
+      startupTimer = 0;
+      if (settled || epoch !== conversationEpoch) {
+        finish('');
         return;
       }
-      let settled = false;
-      let restarts = 0;
-      let session: VoiceInputSession | null = null;
-      const finish = (value: string) => {
-        if (settled) return;
-        settled = true;
-        window.clearTimeout(timer);
-        if (conversationSession === session) conversationSession = null;
-        resolve(value);
-      };
-      const timer = window.setTimeout(() => {
-        if (epoch !== conversationEpoch) {
-          finish('');
-          return;
-        }
+      timeoutTimer = window.setTimeout(() => {
+        timeoutTimer = 0;
         if (session?.isCurrent()) session.stop();
-        finish('');
+        finish(epoch === conversationEpoch ? committed : '');
       }, timeoutMs);
-      let latest = '';
       session = startVoiceDictation({
         owner: 'conversation',
         lang,
         onTranscript: (transcript, isFinal) => {
-          if (epoch !== conversationEpoch) return;
-          latest = transcript.trim();
-          if (!isFinal || !latest) return;
-          finish(latest);
-          session?.stop();
+          if (settled || epoch !== conversationEpoch || !session?.isCurrent()) return;
+          if (!isFinal) return;
+          const next = mergeFinalTranscript(committed, transcript);
+          if (next === committed) return;
+          committed = next;
+          armGrace();
         },
         onError: (message) => {
-          if (epoch !== conversationEpoch) return;
-          if (/no-speech|aborted/i.test(message)) return;
-          if (/language-not-supported/i.test(message) && lang !== 'am-ET') {
-            finish('');
+          if (settled || epoch !== conversationEpoch) return;
+          if (/no-speech/i.test(message)) {
+            noteListenFailure('no-speech');
             return;
           }
-          if (/language-not-supported/i.test(message)) return;
+          if (/aborted/i.test(message)) return;
+          if (/language-not-supported/i.test(message) && lang === 'am-ET') return;
+          if (/permission was denied|not-allowed/i.test(message)) noteListenFailure('permission-denied');
+          else noteListenFailure('unavailable');
           finish('');
         },
         onEnd: () => {
-          if (epoch !== conversationEpoch || settled) return;
-          if (latest) {
-            finish(latest);
+          if (settled || epoch !== conversationEpoch) return;
+          if (committed || graceTimer) {
+            if (!graceTimer) armGrace();
+            if (restarts > 8) return;
+            restarts += 1;
+            scheduleRestart();
             return;
           }
           restarts += 1;
@@ -685,18 +876,12 @@ function listenEnglish(lang: string, timeoutMs: number, epoch: number): Promise<
             finish('');
             return;
           }
-          window.setTimeout(() => {
-            if (settled || epoch !== conversationEpoch || !session?.isCurrent()) return;
-            try {
-              session.start();
-            } catch {
-              finish('');
-            }
-          }, 250);
+          scheduleRestart();
         },
       });
       if (!session || epoch !== conversationEpoch) {
         if (session?.isCurrent()) session.stop();
+        if (!session && epoch === conversationEpoch) noteListenFailure('unavailable');
         finish('');
         return;
       }
@@ -711,7 +896,7 @@ function listenEnglish(lang: string, timeoutMs: number, epoch: number): Promise<
 
 export interface VoiceInputSession {
   stop: () => void;
-  start: () => void;
+  start: () => boolean;
   isCurrent: () => boolean;
 }
 
@@ -814,12 +999,13 @@ export function startVoiceDictation(callbacks: {
     const session: VoiceInputSession = {
       isCurrent,
       start: () => {
-        if (!isCurrent()) return;
+        if (!isCurrent()) return false;
         activeRecognition = recognition;
         try {
           recognition.start();
+          return true;
         } catch {
-          // Ignore a restart that is already running.
+          return false;
         }
       },
       stop: () => {

@@ -310,7 +310,8 @@ describe('conversation engine', () => {
   });
 
   it('confirms a password without repeating or storing it', () => {
-    assert.equal(passwordReceived('en'), 'Thank you. I have received your password.');
+    assert.equal(passwordReceived('en'), 'The password box is filled. I will not read it.');
+    assert.equal(passwordReceived('en').includes('secret'), false);
     assert.equal(redactUserText('my password is secret123').includes('secret123'), false);
     const engine = registration();
     engine.completeQuestion('registration', 'email', 'user@example.com');
@@ -436,7 +437,11 @@ describe('conversation engine', () => {
     const engine = registration();
     engine.handleUtterance('Open the header navigation.');
     const apply = readFileSync(join(sourceRoot, 'components/ApplicationAssistantView.tsx'), 'utf8');
-    assert.match(apply, /data-voice="submit"[\s\S]{0,80}onClick=\{\(\) => setSubmitted\(true\)\}/);
+    assert.match(apply, /data-voice="submit"/);
+    assert.match(apply, /submitApplication\(/);
+    assert.match(apply, /setSubmitted\(true\)/);
+    assert.equal(apply.includes('handleUtterance'), false);
+    assert.equal(apply.includes('ConversationEngine'), false);
     const effect = keyboardEffects({ key: ' ', target: 'submit', awaitingResume: true });
     assert.deepEqual(effect, { resumeConversation: false, advanceApplication: false });
     let submitted = false;

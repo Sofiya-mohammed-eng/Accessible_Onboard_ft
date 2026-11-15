@@ -6,7 +6,13 @@ import { fileURLToPath } from 'node:url';
 import { listenOnce, setAmharicCaptureForTests, startVoiceDictation } from './accessibilityEngine';
 import { getLanguageOption } from './i18n';
 import { acquireMicrophone, releaseMicrophone, resetMicrophoneOwnerForTests } from './microphoneOwner';
-import { pageListenLanguage, pageListenSequence, startupRecognitionLanguages } from './recognitionLanguage';
+import {
+  listenForStartupLanguage,
+  pageListenLanguage,
+  pageListenSequence,
+  startupLanguageChoice,
+  startupListenRetry,
+} from './recognitionLanguage';
 
 const sourceRoot = join(dirname(fileURLToPath(import.meta.url)), '..');
 
@@ -115,17 +121,82 @@ describe('selected recognition language', () => {
     }
   });
 
-  it('keeps startup language selection in Amharic and then English', () => {
-    assert.deepEqual(startupRecognitionLanguages(), ['am-ET', 'en-US']);
+  it('keeps startup language selection able to hear English before Amharic', () => {
     const guide = readFileSync(join(sourceRoot, 'components/BlindConversation.tsx'), 'utf8');
-    const startup = guide.slice(guide.indexOf('startupStep !== \'control\''), guide.indexOf('startupStep === \'control\''));
-    assert.match(startup, /startupRecognitionLanguages\(\)/);
-    assert.match(startup, /hear\(amharicChoice\)\) \|\| \(await hear\(englishChoice\)\)/);
+    const startup = guide.slice(guide.indexOf('startupStep === \'language\''), guide.indexOf('startupStep === \'methods\''));
+    assert.match(startup, /listenForStartupLanguage\(/);
+    assert.equal(startup.includes('hear(amharicChoice)'), false);
+    assert.match(startup, /languageRef.current = choice/);
+    assert.match(startup, /languageReadyRef.current\(choice\)/);
+    assert.match(startup, /onChooseLanguage\(choice\)/);
+    assert.equal(/head movement/i.test(startup), false);
     const landing = guide.slice(guide.indexOf('pageKey === \'landing\''), guide.indexOf('pageKey === \'dashboard\''));
     assert.match(landing, /const command = await hear\(\)/);
     assert.equal(landing.includes('hear(\'am-ET\')'), false);
     assert.match(landing, /Find work from Ethiopia to the world/);
     assert.match(landing, /ከኢትዮጵያ እስከ ዓለም ሥራ ይፈልጉ/);
+  });
+
+  it('understands an English or Amharic reply and ignores the spoken instruction', () => {
+    assert.equal(startupLanguageChoice('English'), 'en');
+    assert.equal(startupLanguageChoice('I want Amharic'), 'am');
+    assert.equal(startupLanguageChoice('አማርኛ'), 'am');
+    assert.equal(startupLanguageChoice('Say English, or say Amharic. እንግሊዝኛ ወይም አማርኛ ይበሉ።'), null);
+    assert.equal(startupLanguageChoice('english amharic'), null);
+    assert.equal(pageListenLanguage('login', 'en'), 'en-US');
+    assert.equal(pageListenLanguage('login', 'am'), 'am-ET');
+    assert.equal(startupListenRetry(null, 'en'), 'No speech was heard. Please say English or Amharic.');
+    assert.equal(startupListenRetry('permission-denied', 'en'), 'Microphone permission was denied. You can continue by typing.');
+    assert.equal(startupListenRetry('timed-out', 'am').includes('ጽሑፉ'), true);
+    assert.equal(startupListenRetry('no-speech', 'en').includes('no-speech'), false);
+  });
+
+  it('recognizes an English reply to the first language question without recording Amharic', async () => {
+    installRecognition();
+    let recorded = 0;
+    const phases: string[] = [];
+    setAmharicCaptureForTests({
+      record: async () => {
+        recorded += 1;
+        return new ArrayBuffer(4000);
+      },
+      transcribe: async () => 'አማርኛ',
+    });
+    try {
+      const pending = listenForStartupLanguage((lang) => phases.push(lang));
+      for (let attempt = 0; attempt < 40 && created.length < 1; attempt += 1) await delay(25);
+      assert.equal(created[0].lang, 'en-US');
+      created[0].emitFinal('English');
+      assert.equal(await pending, 'en');
+      assert.equal(recorded, 0);
+      assert.deepEqual(phases, ['en']);
+    } finally {
+      setAmharicCaptureForTests({ record: null, transcribe: null });
+    }
+  });
+
+  it('recognizes an Amharic reply when English recognition does not hear a language', async () => {
+    installRecognition();
+    let recorded = 0;
+    const phases: string[] = [];
+    setAmharicCaptureForTests({
+      record: async () => {
+        recorded += 1;
+        return new ArrayBuffer(4000);
+      },
+      transcribe: async () => 'አማርኛ',
+    });
+    try {
+      const pending = listenForStartupLanguage((lang) => phases.push(lang));
+      for (let attempt = 0; attempt < 40 && created.length < 1; attempt += 1) await delay(25);
+      for (let end = 0; end < 5; end += 1) created[0].onend?.();
+      assert.equal(await pending, 'am');
+      assert.equal(recorded, 1);
+      assert.deepEqual(phases, ['en', 'am']);
+      assert.equal(created.length, 1);
+    } finally {
+      setAmharicCaptureForTests({ record: null, transcribe: null });
+    }
   });
 
   it('keeps gaze recognition in English', () => {

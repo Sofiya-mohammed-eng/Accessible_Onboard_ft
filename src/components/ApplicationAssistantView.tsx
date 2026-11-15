@@ -8,6 +8,8 @@ import {
 import { beginDictation, noteAfterDictationLoss, noteAfterQuietDictation, releaseDictation } from '../engines/dictationControl';
 import { getLanguageOption } from '../engines/i18n';
 import { getPageCopy, unsupportedLanguageNotice } from '../engines/pageCopy';
+import { submitApplication } from '../engines/api';
+import { clearApplicationFill, loadApplicationFill, saveApplicationFill } from '../engines/formDraft';
 import {
   AccessibilityPreferences,
   ApplicationDraft,
@@ -69,8 +71,10 @@ export const ApplicationAssistantView: React.FC<ApplicationAssistantViewProps> =
   };
   const jobTitle = draft.jobTitle.trim() || 'Customer Support Associate';
   const employer = draft.employer.trim() || 'Selam Digital Services';
-  const [step, setStep] = useState(1);
+  const [step, setStep] = useState(() => loadApplicationFill()?.step || 1);
   const [answers, setAnswers] = useState(() => {
+    const filled = loadApplicationFill();
+    if (filled?.answers) return { ...SAMPLE_ANSWERS, ...filled.answers };
     try {
       const saved = sessionStorage.getItem('allways-gateway-answers');
       if (!saved) return SAMPLE_ANSWERS;
@@ -86,7 +90,9 @@ export const ApplicationAssistantView: React.FC<ApplicationAssistantViewProps> =
     }
   });
   const [submitted, setSubmitted] = useState(false);
-  const [agreed, setAgreed] = useState(true);
+  const [sending, setSending] = useState(false);
+  const [reference, setReference] = useState('');
+  const [agreed, setAgreed] = useState(() => loadApplicationFill()?.agreed ?? true);
   const [voiceNote, setVoiceNote] = useState('');
   const [dictating, setDictating] = useState(false);
   const [formError, setFormError] = useState('');
@@ -115,6 +121,10 @@ export const ApplicationAssistantView: React.FC<ApplicationAssistantViewProps> =
     setFormError('');
     setAnswers((current) => ({ ...current, [key]: value }));
   };
+
+  useEffect(() => {
+    saveApplicationFill({ step, answers, agreed });
+  }, [step, answers, agreed]);
 
   useEffect(() => {
     const onVoiceFile = (event: Event) => {
@@ -235,7 +245,7 @@ export const ApplicationAssistantView: React.FC<ApplicationAssistantViewProps> =
 
   if (submitted) {
     const summary = [
-      `${page.applicationComplete}. OP-JOB-7352.`,
+      `${page.applicationComplete}. ${reference}.`,
       `${page.youAppliedFor} ${jobTitle} · ${employer}.`,
       ...REVIEW_FIELDS.map(
         (field) => `${questionTitles[field.key]}: ${answers[field.key].trim() || page.notProvided}.`,
@@ -271,7 +281,12 @@ export const ApplicationAssistantView: React.FC<ApplicationAssistantViewProps> =
                   <strong className="text-white">{employer}</strong>.
                 </p>
                 <div className="mt-4 flex flex-wrap gap-2">
-                  {[page.referenceChip, page.submittedChip, page.calendarChip, page.stepChip].map(
+                  {[
+                    preferences.language === 'am' ? `ማጣቀሻ ${reference}` : `Reference ${reference}`,
+                    page.submittedChip,
+                    page.calendarChip,
+                    page.stepChip,
+                  ].map(
                     (item) => (
                       <span
                         key={item}
@@ -382,7 +397,7 @@ export const ApplicationAssistantView: React.FC<ApplicationAssistantViewProps> =
             {page.thanksAndLuck}
           </p>
           <p className="sr-only" role="status">
-            Application submitted. Reference OP-JOB-7352.
+            Application submitted. Reference {reference}.
           </p>
         </div>
       </div>
@@ -588,11 +603,36 @@ export const ApplicationAssistantView: React.FC<ApplicationAssistantViewProps> =
             <button
               type="button"
               data-voice="submit"
-              disabled={!agreed}
-              onClick={() => setSubmitted(true)}
+              disabled={!agreed || sending}
+              onClick={() => {
+                if (sending) return;
+                setSending(true);
+                setFormError('');
+                const payload = {
+                  ...(draft.jobId ? { jobId: draft.jobId } : {}),
+                  jobTitle,
+                  employer,
+                  name: answers.name.trim(),
+                  phone: answers.phone.trim(),
+                  experience: answers.experience.trim(),
+                  education: answers.education.trim(),
+                  skills: answers.skills.trim(),
+                  cvName: answers.cv.trim(),
+                };
+                submitApplication(payload)
+                  .then((saved) => {
+                    setReference(saved.reference);
+                    clearApplicationFill();
+                    setSubmitted(true);
+                  })
+                  .catch((caught: unknown) => {
+                    setFormError(caught instanceof Error ? caught.message : page.emptyAnswer);
+                  })
+                  .finally(() => setSending(false));
+              }}
               className="inline-flex items-center gap-2 rounded-xl bg-[#1a73e8] px-4 py-3 text-sm font-bold text-white hover:bg-[#0d4f9e] disabled:opacity-50"
             >
-              {page.submitApplication}
+              {sending ? page.continue : page.submitApplication}
             </button>
           )}
         </div>

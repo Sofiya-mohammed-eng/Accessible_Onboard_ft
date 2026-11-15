@@ -9,6 +9,7 @@ import {
   hasSavedGazeCalibration,
   isGazeAutoStartRequested,
 } from './gazeCalibration';
+import { cameraFailureDisablesHead } from '../engines/startupFlow';
 import {
   getPermissionPromptSnapshot,
   subscribePermissionPrompt,
@@ -69,6 +70,8 @@ export function GazeControlManager({
     });
   }
   const engine = engineRef.current;
+  const updatePreferencesRef = useRef(onUpdatePreferences);
+  updatePreferencesRef.current = onUpdatePreferences;
 
   const [status, setStatus] = useState<GazeStatus>(() => engine.getStatus());
   const [error, setError] = useState<GazeErrorInfo | null>(null);
@@ -86,16 +89,21 @@ export function GazeControlManager({
   useEffect(() => {
     if (autoCalibrationStartedRef.current) return;
     autoCalibrationStartedRef.current = true;
+    if (!preferences.gazeControlEnabled) return;
     if (!isGazeAutoStartRequested() || hasSavedGazeCalibration()) return;
     setPendingCalibration(true);
     setLiveMessage('Starting gaze control and opening hands-free calibration.');
-  }, []);
+  }, [preferences.gazeControlEnabled]);
 
   useEffect(() => {
     const unsubscribeStatus = engine.onStatus(setStatus);
     const unsubscribeError = engine.onError((nextError) => {
       setError(nextError);
-      if (nextError) setPanelOpen(true);
+      if (!nextError) return;
+      if (cameraFailureDisablesHead(nextError.code)) {
+        updatePreferencesRef.current({ gazeControlEnabled: false });
+      }
+      setPanelOpen(true);
     });
     const unsubscribeCalibration = engine.onCalibrationChange(setCalibration);
     const unsubscribeClick = engine.onDwellClick((target) => {

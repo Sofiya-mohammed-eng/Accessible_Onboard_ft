@@ -427,3 +427,65 @@ html.theme-dark:not(.high-contrast) [class*='from-[#0d4f9e]'],
 html.theme-dark:not(.high-contrast) [class*='from-[#0d4f9e]'] * {
   color: #ffffff !important;
 }
+
+@keyframes allways-dot {
+  0%,
+  70%,
+  100% {
+    opacity: 0.18;
+    transform: scale(0.72);
+  }
+  35% {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+@keyframes allways-bar {
+  from {
+    width: 8%;
+  }
+  to {
+    width: 100%;
+  }
+}
+
+@keyframes allways-window-in {
+  from {
+    transform: translateY(22px) scale(0.94);
+  }
+  to {
+    transform: translateY(0) scale(1);
+  }
+}
+
+/* Same navy and blue. Muted letters are darker so they stay readable. */
+html:not(.theme-dark):not(.high-contrast) [class*='text-[#5a7390]'],
+html:not(.theme-dark):not(.high-contrast) [class*='text-[#4d6786]'],
+html:not(.theme-dark):not(.high-contrast) [class*='text-[#6d849c]'],
+html:not(.theme-dark):not(.high-contrast) [class*='text-[#7f97b0]'],
+html:not(.theme-dark):not(.high-contrast) [class*='text-[#8aa0b5]'],
+html:not(.theme-dark):not(.high-contrast) [class*='text-[#3e5c7a]'],
+html:not(.theme-dark):not(.high-contrast) [class*='text-slate-500'],
+html:not(.theme-dark):not(.high-contrast) [class*='text-slate-600'] {
+  color: #1a365d;
+}
+
+html:not(.theme-dark):not(.high-contrast) input::placeholder,
+html:not(.theme-dark):not(.high-contrast) textarea::placeholder {
+  color: #2c4a6e;
+  opacity: 1;
+}
+
+html.theme-dark:not(.high-contrast) [class*='text-[#6d849c]'],
+html.theme-dark:not(.high-contrast) [class*='text-[#6d7f74]'],
+html.theme-dark:not(.high-contrast) [class*='text-[#7f97b0]'],
+html.theme-dark:not(.high-contrast) [class*='text-[#8aa0b5]'] {
+  color: #e7f3ff !important;
+}
+
+html.theme-dark:not(.high-contrast) input::placeholder,
+html.theme-dark:not(.high-contrast) textarea::placeholder {
+  color: #d6e8ff;
+  opacity: 1;
+}

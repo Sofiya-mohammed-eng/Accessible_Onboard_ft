@@ -53,7 +53,7 @@ export const AppHeader: React.FC<AppHeaderProps> = ({
         {/* Zone 1: Single-element Brand Wordmark */}
         <button
           type="button"
-          onClick={() => handleNav('landing')}
+          onClick={() => (signedIn ? handleNav('jobs') : onOpenLanguage())}
           className="font-display text-2xl font-bold tracking-tight text-[#0e2a4a] hover:text-[#1a73e8] whitespace-nowrap shrink-0 high-contrast:text-yellow-300"
         >
           AllWays

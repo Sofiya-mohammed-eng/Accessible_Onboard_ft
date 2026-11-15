@@ -2,6 +2,14 @@ import React, { useEffect, useRef, useState } from 'react';
 import { ArrowLeft, ArrowRight, Eye, EyeOff, Lock, Mail, UserRound } from 'lucide-react';
 import { getPageCopy } from '../engines/pageCopy';
 import { emailLooksValid, normalizeSpokenEmail } from '../engines/spokenEmail';
+import { ApiError, registerAccount, signIn } from '../engines/api';
+import { ACCOUNT_OPEN_EVENT } from '../engines/accountPage';
+import {
+  clearAccountFill,
+  clearStoredPasswords,
+  loadAccountDraft,
+  saveAccountDraft,
+} from '../engines/formDraft';
 import { PreferredLanguage } from '../types/accessbridge';
 
 interface LoginToApplyProps {
@@ -22,15 +30,17 @@ export const LoginToApply: React.FC<LoginToApplyProps> = ({
   onContinue,
 }) => {
   const page = getPageCopy(language);
-  const [mode, setMode] = useState<'login' | 'register'>('login');
-  const [stage, setStage] = useState<'choose' | 'form'>('choose');
-  const [name, setName] = useState('');
-  const [email, setEmail] = useState('');
+  const savedAccount = loadAccountDraft();
+  const [mode, setMode] = useState<'login' | 'register'>(savedAccount?.mode || 'login');
+  const [stage, setStage] = useState<'choose' | 'form'>(savedAccount?.stage || 'choose');
+  const [name, setName] = useState(savedAccount?.name || '');
+  const [email, setEmail] = useState(savedAccount?.email || '');
   const [password, setPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [error, setError] = useState('');
   const [errorField, setErrorField] = useState('');
+  const [sending, setSending] = useState(false);
   const headingRef = useRef<HTMLHeadingElement>(null);
 
   const showError = (field: string, message: string) => {
@@ -41,10 +51,37 @@ export const LoginToApply: React.FC<LoginToApplyProps> = ({
   useEffect(() => {
     headingRef.current?.focus();
     window.scrollTo(0, 0);
+    clearStoredPasswords();
   }, []);
 
-  const submit = (event: React.FormEvent) => {
+  useEffect(() => {
+    const onOpen = (event: Event) => {
+      const detail = (event as CustomEvent<string>).detail;
+      if (detail !== 'login' && detail !== 'register') return;
+      setMode(detail);
+      setStage('form');
+      setError('');
+      setErrorField('');
+    };
+    window.addEventListener(ACCOUNT_OPEN_EVENT, onOpen);
+    return () => window.removeEventListener(ACCOUNT_OPEN_EVENT, onOpen);
+  }, []);
+
+  useEffect(() => {
+    saveAccountDraft({ mode, stage, name, email });
+  }, [mode, stage, name, email]);
+
+  const chooseMode = (next: 'login' | 'register') => {
+    setMode(next);
+    setStage('form');
+    setError('');
+    setErrorField('');
+    window.dispatchEvent(new CustomEvent('allways-account-choice', { detail: next }));
+  };
+
+  const submit = async (event: React.FormEvent) => {
     event.preventDefault();
+    if (sending) return;
     if (mode === 'register' && !name.trim()) {
       showError('name', page.missingName);
       return;
@@ -68,7 +105,29 @@ export const LoginToApply: React.FC<LoginToApplyProps> = ({
       showError('confirm', page.passwordsMismatch);
       return;
     }
-    onContinue();
+    setSending(true);
+    try {
+      const account =
+        mode === 'register'
+          ? await registerAccount({ name: name.trim(), email: correctedEmail, password })
+          : await signIn({ email: correctedEmail, password });
+      clearAccountFill();
+      sessionStorage.setItem('allways-account', JSON.stringify(account));
+      if (mode === 'register') {
+        sessionStorage.setItem('allways-account-notice', `Account saved for ${account.name}.`);
+      }
+      onContinue();
+    } catch (caught) {
+      const message =
+        caught instanceof ApiError
+          ? caught.message
+          : language === 'am'
+            ? 'መለያው አልተቀመጠም።'
+            : 'The account service is not available.';
+      showError(mode === 'register' ? 'email' : 'password', message);
+    } finally {
+      setSending(false);
+    }
   };
 
   return (
@@ -106,18 +165,31 @@ export const LoginToApply: React.FC<LoginToApplyProps> = ({
         </section>
 
         <form
+          data-account-stage={stage}
+          data-account-mode={mode}
           onSubmit={submit}
           className="rounded-3xl border border-white/80 bg-white/85 p-6 shadow-[0_24px_60px_-28px_rgba(26,115,232,0.45)] backdrop-blur high-contrast:border-white high-contrast:bg-black sm:p-8"
           noValidate
         >
-          <button
-            type="button"
-            onClick={onBack}
-            className="inline-flex items-center gap-1.5 text-sm font-semibold text-[#1a73e8] hover:underline high-contrast:text-yellow-300"
-          >
-            <ArrowLeft className="h-4 w-4" aria-hidden="true" />
-            {purpose === 'account' ? page.back : page.backToJob}
-          </button>
+          {stage === 'form' ? (
+            <button
+              type="button"
+              onClick={() => setStage('choose')}
+              className="inline-flex items-center gap-1.5 text-sm font-semibold text-[#1a73e8] hover:underline high-contrast:text-yellow-300"
+            >
+              <ArrowLeft className="h-4 w-4" aria-hidden="true" />
+              {page.back}
+            </button>
+          ) : purpose === 'job' ? (
+            <button
+              type="button"
+              onClick={onBack}
+              className="inline-flex items-center gap-1.5 text-sm font-semibold text-[#1a73e8] hover:underline high-contrast:text-yellow-300"
+            >
+              <ArrowLeft className="h-4 w-4" aria-hidden="true" />
+              {page.backToJob}
+            </button>
+          ) : null}
           {stage === 'choose' ? (
             <div className="mt-5 grid gap-3">
               <h2 className="font-display text-3xl font-bold text-[#0e2a4a] high-contrast:text-white">
@@ -126,12 +198,7 @@ export const LoginToApply: React.FC<LoginToApplyProps> = ({
               <button
                 type="button"
                 data-voice-choice="login"
-                onClick={() => {
-                  setMode('login');
-                  setStage('form');
-                  setError('');
-                  setErrorField('');
-                }}
+                onClick={() => chooseMode('login')}
                 className="rounded-2xl bg-[#1a73e8] px-4 py-4 text-left text-lg font-bold text-white"
               >
                 {page.login}
@@ -139,12 +206,7 @@ export const LoginToApply: React.FC<LoginToApplyProps> = ({
               <button
                 type="button"
                 data-voice-choice="register"
-                onClick={() => {
-                  setMode('register');
-                  setStage('form');
-                  setError('');
-                  setErrorField('');
-                }}
+                onClick={() => chooseMode('register')}
                 className="rounded-2xl border border-[#1a73e8] bg-white px-4 py-4 text-left text-lg font-bold text-[#0d4f9e] high-contrast:bg-black high-contrast:text-white"
               >
                 {page.register}
@@ -152,13 +214,6 @@ export const LoginToApply: React.FC<LoginToApplyProps> = ({
             </div>
           ) : (
             <>
-          <button
-            type="button"
-            onClick={() => setStage('choose')}
-            className="mt-5 text-sm font-semibold text-[#1a73e8] underline high-contrast:text-yellow-300"
-          >
-            {page.back}
-          </button>
           <h2 className="mt-5 font-display text-3xl font-bold text-[#0e2a4a] high-contrast:text-white">
             {mode === 'register' ? page.createAccount : page.welcomeBack}
           </h2>
@@ -267,7 +322,8 @@ export const LoginToApply: React.FC<LoginToApplyProps> = ({
 
           <button
             type="submit"
-            className="mt-6 inline-flex w-full items-center justify-center gap-2 rounded-xl bg-[#1a73e8] px-4 py-3 text-sm font-bold text-white hover:bg-[#0d4f9e]"
+            disabled={sending}
+            className="mt-6 inline-flex w-full items-center justify-center gap-2 rounded-xl bg-[#1a73e8] px-4 py-3 text-sm font-bold text-white hover:bg-[#0d4f9e] disabled:opacity-60"
           >
             {mode === 'register' ? page.register : page.signInContinue}
             <ArrowRight className="h-4 w-4" aria-hidden="true" />

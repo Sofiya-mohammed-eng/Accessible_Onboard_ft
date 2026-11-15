@@ -60,6 +60,7 @@ function amharicSpeechPlugin() {
           const url = new URL(req.url || '', 'http://localhost');
           const text = (url.searchParams.get('text') || '').slice(0, 400);
           const lang = (url.searchParams.get('lang') || 'en').startsWith('am') ? 'am' : 'en';
+          const requestedSlow = url.searchParams.get('slow') === '1';
           if (!text) {
             res.statusCode = 400;
             res.end();
@@ -74,6 +75,17 @@ function amharicSpeechPlugin() {
               return;
             } catch {
               // The library could not speak this line, so try the direct voice next.
+            }
+          }
+          if (lang === 'en' && requestedSlow) {
+            try {
+              const audio = await speakWithGtts(text, 'en', true);
+              res.setHeader('Content-Type', 'audio/mpeg');
+              res.setHeader('Cache-Control', 'no-store');
+              res.end(audio);
+              return;
+            } catch {
+              // Slow English was unavailable, so use the existing direct voice.
             }
           }
           const remote = `https://translate.google.com/translate_tts?ie=UTF-8&client=tw-ob&tl=${lang}&q=${encodeURIComponent(text.slice(0, 180))}`;
@@ -160,6 +172,12 @@ export default defineConfig(() => {
       },
     },
     server: {
+      proxy: {
+        '/api/v1': {
+          target: 'http://127.0.0.1:3001',
+          changeOrigin: true,
+        },
+      },
       // HMR is disabled in AI Studio via DISABLE_HMR env var.
       // Do not modify—file watching is disabled to prevent flickering during agent edits.
       hmr: process.env.DISABLE_HMR !== 'true',

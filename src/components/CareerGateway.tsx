@@ -1,8 +1,10 @@
 import React, { useEffect, useId, useMemo, useRef, useState } from 'react';
 import { Check, Mic, Minus, Plus, Volume2, X } from 'lucide-react';
+import { createCareerApplication, createJob, listJobs } from '../engines/api';
 import { speakAloud, startVoiceDictation, type VoiceInputSession } from '../engines/accessibilityEngine';
 import { beginDictation, releaseDictation } from '../engines/dictationControl';
 import { getLanguageOption } from '../engines/i18n';
+import { clearCareerApplyFill, loadCareerApplyFill, saveCareerApplyFill } from '../engines/formDraft';
 import { JobListing, PreferredLanguage } from '../types/accessbridge';
 
 const SUPPORTS = [
@@ -62,6 +64,7 @@ const STARTER_JOBS: GatewayJob[] = [
 
 const POSTS_KEY = 'allways-career-posts';
 const ANSWERS_KEY = 'allways-gateway-answers';
+const STARTER_IDS = new Set(STARTER_JOBS.map((job) => job.id));
 
 const APPLY_STEPS = [
   {
@@ -115,6 +118,26 @@ function supportLabel(id: string) {
   return SUPPORTS.find((item) => item.id === id)?.label || id;
 }
 
+function asGatewayJob(job: {
+  id: string;
+  title: string;
+  organization: string;
+  location: string;
+  summary: string;
+  supports: string[];
+  otherSupport?: string;
+}): GatewayJob {
+  return {
+    id: job.id,
+    title: job.title,
+    organization: job.organization,
+    location: job.location,
+    summary: job.summary,
+    supports: job.supports.filter((id): id is SupportId => SUPPORTS.some((item) => item.id === id)),
+    otherSupport: job.otherSupport || '',
+  };
+}
+
 function toListing(job: GatewayJob): JobListing {
   const remote = /remote/i.test(job.location);
   return {
@@ -147,11 +170,42 @@ export const CareerGateway: React.FC<CareerGatewayProps> = ({
   const [needed, setNeeded] = useState<SupportId[]>([]);
   const [query, setQuery] = useState('');
   const [appliedQuery, setAppliedQuery] = useState('');
-  const [posted, setPosted] = useState<GatewayJob[]>(loadPosted);
+  const [jobs, setJobs] = useState<GatewayJob[]>(() => [...loadPosted(), ...STARTER_JOBS]);
   const [notice, setNotice] = useState('');
   const [applyJob, setApplyJob] = useState<GatewayJob | null>(null);
 
-  const jobs = useMemo(() => [...posted, ...STARTER_JOBS], [posted]);
+  useEffect(() => {
+    const fill = loadCareerApplyFill();
+    if (!fill) return;
+    const match = jobs.find((job) => job.id === fill.jobId);
+    if (match) setApplyJob(match);
+  }, [jobs]);
+
+  useEffect(() => {
+    const saved = sessionStorage.getItem('allways-account-notice');
+    if (!saved) return;
+    sessionStorage.removeItem('allways-account-notice');
+    setNotice(saved);
+  }, []);
+
+  useEffect(() => {
+    let live = true;
+    listJobs()
+      .then((remote) => {
+        if (!live || remote.length === 0) return;
+        const next = remote.map(asGatewayJob);
+        setJobs(next);
+        sessionStorage.setItem(
+          POSTS_KEY,
+          JSON.stringify(next.filter((job) => !STARTER_IDS.has(job.id))),
+        );
+      })
+      .catch(() => undefined);
+    return () => {
+      live = false;
+    };
+  }, []);
+
   const results = useMemo(() => {
     const needle = appliedQuery.trim().toLowerCase();
     return jobs.filter((job) => {
@@ -168,9 +222,8 @@ export const CareerGateway: React.FC<CareerGatewayProps> = ({
     setNeeded((current) => (current.includes(id) ? current.filter((item) => item !== id) : [...current, id]));
   };
 
-  const savePosted = (next: GatewayJob[]) => {
-    setPosted(next);
-    sessionStorage.setItem(POSTS_KEY, JSON.stringify(next));
+  const rememberPosts = (next: GatewayJob[]) => {
+    sessionStorage.setItem(POSTS_KEY, JSON.stringify(next.filter((job) => !STARTER_IDS.has(job.id))));
   };
 
   return (
@@ -347,13 +400,27 @@ export const CareerGateway: React.FC<CareerGatewayProps> = ({
         ) : (
           <EmployerForm
             language={language}
-            onPost={(job) => {
-              savePosted([job, ...posted]);
+            onPost={async (job) => {
+              const saved = asGatewayJob(
+                await createJob({
+                  title: job.title,
+                  organization: job.organization,
+                  location: job.location,
+                  summary: job.summary,
+                  supports: job.supports,
+                  otherSupport: job.otherSupport || '',
+                }),
+              );
+              setJobs((current) => {
+                const next = [saved, ...current.filter((item) => item.id !== saved.id)];
+                rememberPosts(next);
+                return next;
+              });
               setMode('learner');
               setNeeded([]);
               setQuery('');
               setAppliedQuery('');
-              setNotice(`${job.title} is now on the learner job board.`);
+              setNotice(`${saved.title} is now on the learner job board.`);
             }}
           />
         )}
@@ -364,7 +431,10 @@ export const CareerGateway: React.FC<CareerGatewayProps> = ({
           job={applyJob}
           language={language}
           onSpeakText={onSpeakText}
-          onClose={() => setApplyJob(null)}
+          onClose={() => {
+            clearCareerApplyFill();
+            setApplyJob(null);
+          }}
           onContinue={(answers) => {
             sessionStorage.setItem(ANSWERS_KEY, JSON.stringify(answers));
             onSelectJobForApplication(toListing(applyJob));
@@ -380,8 +450,9 @@ function EmployerForm({
   onPost,
 }: {
   language: PreferredLanguage;
-  onPost: (job: GatewayJob) => void;
+  onPost: (job: Omit<GatewayJob, 'id'>) => Promise<void>;
 }) {
+  const [sending, setSending] = useState(false);
   const [title, setTitle] = useState('');
   const [company, setCompany] = useState('');
   const [location, setLocation] = useState('');
@@ -394,22 +465,28 @@ function EmployerForm({
     setSupports((current) => (current.includes(id) ? current.filter((item) => item !== id) : [...current, id]));
   };
 
-  const submit = (event: React.FormEvent) => {
+  const submit = async (event: React.FormEvent) => {
     event.preventDefault();
     if (!title.trim() || !company.trim() || !location.trim() || !description.trim()) {
       setError('Title, company, location, and description are required.');
       return;
     }
     setError('');
-    onPost({
-      id: `posted-${Date.now()}`,
-      title: title.trim(),
-      organization: company.trim(),
-      location: location.trim(),
-      summary: description.trim(),
-      supports,
-      otherSupport: other.trim(),
-    });
+    setSending(true);
+    try {
+      await onPost({
+        title: title.trim(),
+        organization: company.trim(),
+        location: location.trim(),
+        summary: description.trim(),
+        supports,
+        otherSupport: other.trim(),
+      });
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : 'The job was not posted.');
+    } finally {
+      setSending(false);
+    }
   };
 
   return (
@@ -487,9 +564,10 @@ function EmployerForm({
       )}
       <button
         type="submit"
-        className="mt-6 inline-flex items-center gap-2 rounded-xl bg-[#1a73e8] px-5 py-3 text-sm font-bold text-white hover:bg-[#1259b8] high-contrast:bg-yellow-300 high-contrast:text-black"
+        disabled={sending}
+        className="mt-6 inline-flex items-center gap-2 rounded-xl bg-[#1a73e8] px-5 py-3 text-sm font-bold text-white hover:bg-[#1259b8] disabled:opacity-60 high-contrast:bg-yellow-300 high-contrast:text-black"
       >
-        Post job <span aria-hidden="true">&gt;</span>
+        {sending ? 'Posting…' : 'Post job'} <span aria-hidden="true">&gt;</span>
       </button>
     </form>
   );
@@ -633,12 +711,21 @@ function ApplyDialog({
 }) {
   const titleId = useId();
   const headingRef = useRef<HTMLHeadingElement>(null);
-  const [step, setStep] = useState(0);
+  const savedFill = loadCareerApplyFill();
+  const restored = savedFill?.jobId === job.id ? savedFill : null;
+  const [step, setStep] = useState(restored?.step || 0);
   const [done, setDone] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [reference, setReference] = useState('');
   const [error, setError] = useState('');
   const [reading, setReading] = useState(false);
-  const [answers, setAnswers] = useState({ name: '', phone: '', experience: '' });
+  const [answers, setAnswers] = useState(restored?.answers || { name: '', phone: '', experience: '' });
   const current = APPLY_STEPS[step];
+
+  useEffect(() => {
+    if (!answers.name && !answers.phone && !answers.experience && step === 0) return;
+    saveCareerApplyFill({ jobId: job.id, step, answers });
+  }, [answers, job.id, step]);
 
   useEffect(() => {
     headingRef.current?.focus();
@@ -654,7 +741,7 @@ function ApplyDialog({
 
   const read = () => {
     const text = done
-      ? `Application saved for ${job.title} at ${job.organization}.`
+      ? `Application saved for ${job.title} at ${job.organization}. Reference ${reference}.`
       : `${current.title} ${current.help}`;
     if (reading) {
       window.speechSynthesis?.cancel();
@@ -678,9 +765,24 @@ function ApplyDialog({
     if (step < APPLY_STEPS.length - 1) setStep(step + 1);
   };
 
-  const save = () => {
-    sessionStorage.setItem(ANSWERS_KEY, JSON.stringify(answers));
-    setDone(true);
+  const save = async () => {
+    setSaving(true);
+    setError('');
+    try {
+      const saved = await createCareerApplication(job.id, {
+        name: answers.name.trim(),
+        phone: answers.phone.trim(),
+        experience: answers.experience.trim(),
+      });
+      sessionStorage.setItem(ANSWERS_KEY, JSON.stringify(answers));
+      clearCareerApplyFill();
+      setReference(saved.reference);
+      setDone(true);
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : 'The application was not saved.');
+    } finally {
+      setSaving(false);
+    }
   };
 
   return (
@@ -709,10 +811,10 @@ function ApplyDialog({
         {done ? (
           <div className="mt-5">
             <h2 id={titleId} ref={headingRef} tabIndex={-1} className="font-display text-4xl font-bold text-[#0e2a4a] outline-none high-contrast:text-white">
-              Your application is saved on this device.
+              Your application is saved.
             </h2>
             <p data-career-help className="mt-3 text-[#4d6786] high-contrast:text-slate-200">
-              {job.organization} can see the name, contact, and experience you entered for {job.title}. Nothing is sent to a server in this demo.
+              {job.organization} can see the name, contact, and experience you entered for {job.title}. Reference {reference}.
             </p>
             <div className="mt-6 flex flex-wrap gap-3">
               <button
@@ -805,9 +907,10 @@ function ApplyDialog({
                   type="button"
                   data-voice="submit"
                   onClick={save}
-                  className="inline-flex items-center gap-2 rounded-xl bg-[#1a73e8] px-5 py-3 text-sm font-bold text-white hover:bg-[#1259b8] high-contrast:bg-yellow-300 high-contrast:text-black"
+                  disabled={saving}
+                  className="inline-flex items-center gap-2 rounded-xl bg-[#1a73e8] px-5 py-3 text-sm font-bold text-white hover:bg-[#1259b8] disabled:opacity-60 high-contrast:bg-yellow-300 high-contrast:text-black"
                 >
-                  <Check className="h-4 w-4" aria-hidden="true" /> Submit
+                  <Check className="h-4 w-4" aria-hidden="true" /> {saving ? 'Saving…' : 'Submit'}
                 </button>
               ) : (
                 <button

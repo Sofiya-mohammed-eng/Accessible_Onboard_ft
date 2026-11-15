@@ -6,8 +6,8 @@ const TEXT: Record<string, Record<ConversationLanguage, string>> = {
     am: 'እባክዎ ኢሜይል አድራሻዎን ይንገሩኝ።',
   },
   passwordQuestion: {
-    en: 'Please tell me your password.',
-    am: 'እባክዎ የይለፍ ቃልዎን ይንገሩኝ።',
+    en: 'Type your password in the password box. I will not read it.',
+    am: 'የይለፍ ቃልዎን በሳጥኑ ውስጥ ይጻፉ። አላነባውም።',
   },
   nameQuestion: {
     en: 'Please tell me your full name.',
@@ -66,8 +66,8 @@ const TEXT: Record<string, Record<ConversationLanguage, string>> = {
     am: 'ስራ ፈልግ መክፈት አልቻልኩም።',
   },
   passwordReceived: {
-    en: 'Thank you. I have received your password.',
-    am: 'አመሰግናለሁ። የይለፍ ቃልዎን ተቀብዬአለሁ።',
+    en: 'The password box is filled. I will not read it.',
+    am: 'የይለፍ ቃሉ በሳጥኑ ውስጥ ገብቷል። አላነባውም።',
   },
   registrationRestarted: {
     en: 'Registration is open again. I will continue from the question that is still unfinished.',
