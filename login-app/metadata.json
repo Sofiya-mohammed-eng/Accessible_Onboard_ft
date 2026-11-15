@@ -1,0 +1,8 @@
+{
+  "name": "AllWays",
+  "description": "An open-source, universal digital accessibility companion helping people with disabilities independently navigate websites, understand pages, prepare job applications, and verify actions before submission.",
+  "requestFramePermissions": [
+    "microphone"
+  ],
+  "majorCapabilities": []
+}
