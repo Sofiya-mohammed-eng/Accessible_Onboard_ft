@@ -5,6 +5,7 @@ import {
   startVoiceDictation,
   VoiceInputSession,
 } from '../engines/accessibilityEngine';
+import { acquireMicrophone, releaseMicrophone } from '../engines/microphoneOwner';
 import { getLanguageOption } from '../engines/i18n';
 import { getPageCopy, unsupportedLanguageNotice } from '../engines/pageCopy';
 import {
@@ -87,6 +88,8 @@ export const ApplicationAssistantView: React.FC<ApplicationAssistantViewProps> =
   useEffect(() => {
     return () => {
       voiceRef.current?.stop();
+      voiceRef.current = null;
+      releaseMicrophone('dictation');
     };
   }, []);
 
@@ -133,6 +136,7 @@ export const ApplicationAssistantView: React.FC<ApplicationAssistantViewProps> =
     if (voiceRef.current) {
       voiceRef.current.stop();
       voiceRef.current = null;
+      releaseMicrophone('dictation');
       setVoiceNote(page.voiceStopped);
       return;
     }
@@ -141,8 +145,10 @@ export const ApplicationAssistantView: React.FC<ApplicationAssistantViewProps> =
       setVoiceNote(page.voiceAdded);
       return;
     }
+    if (!acquireMicrophone('dictation')) return;
     setVoiceNote(page.voiceListening);
     const session = startVoiceDictation({
+      owner: 'dictation',
       lang: speechLang,
       onTranscript: (transcript, isFinal) => {
         if (!isFinal) return;
@@ -160,9 +166,11 @@ export const ApplicationAssistantView: React.FC<ApplicationAssistantViewProps> =
       },
       onEnd: () => {
         voiceRef.current = null;
+        releaseMicrophone('dictation');
       },
     });
     voiceRef.current = session;
+    if (!session) releaseMicrophone('dictation');
   };
 
   if (submitted) {

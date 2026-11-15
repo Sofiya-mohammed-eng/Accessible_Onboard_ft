@@ -41,7 +41,10 @@ const WASM_BASE_URL = `https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@${ME
 const FACE_LANDMARKER_MODEL_URL =
   'https://storage.googleapis.com/mediapipe-models/face_landmarker/face_landmarker/float16/1/face_landmarker.task';
 
-const NEUTRAL_SAMPLE_COUNT = 30;
+const NEUTRAL_SAMPLE_COUNT = 12;
+const HIT_RADIUS_PX = 40;
+const STICKY_PADDING_PX = 64;
+const TARGET_LEAVE_GRACE_MS = 240;
 const FEATURE_HISTORY_SIZE = 90;
 const CALIBRATION_SAMPLE_WINDOW = 14;
 
@@ -71,14 +74,14 @@ const INTERACTIVE_SELECTOR = [
 const DEFAULT_SETTINGS: GazeSettings = {
   mode: 'hybrid',
   activationMode: 'both',
-  dwellMs: 800,
-  sensitivity: 0.6,
-  smoothing: 0.45,
+  dwellMs: 550,
+  sensitivity: 0.78,
+  smoothing: 0.28,
   edgeScrollSpeed: 500,
 };
 
 function clampDwell(value: number): number {
-  return Math.min(1500, Math.max(400, Math.round(value)));
+  return Math.min(1500, Math.max(300, Math.round(value)));
 }
 
 function clampUnit(value: number, fallback: number): number {
@@ -244,8 +247,7 @@ export function describeInteractiveElement(element: HTMLElement): string {
   return element.tagName.toLowerCase();
 }
 
-function findInteractiveElement(x: number, y: number): HTMLElement | null {
-  if (typeof document === 'undefined') return null;
+function interactiveFromPoint(x: number, y: number): HTMLElement | null {
   const hit = document.elementFromPoint(x, y);
   if (!(hit instanceof Element)) return null;
   if (hit.closest('[data-gaze-ignore="true"]')) return null;
@@ -256,8 +258,48 @@ function findInteractiveElement(x: number, y: number): HTMLElement | null {
     return null;
   }
   if (candidate.getAttribute('aria-hidden') === 'true') return null;
-
   return candidate;
+}
+
+function pointerWithin(element: HTMLElement, x: number, y: number, padding: number): boolean {
+  const rect = element.getBoundingClientRect();
+  return (
+    x >= rect.left - padding &&
+    x <= rect.right + padding &&
+    y >= rect.top - padding &&
+    y <= rect.bottom + padding
+  );
+}
+
+function findInteractiveElement(x: number, y: number): HTMLElement | null {
+  if (typeof document === 'undefined') return null;
+
+  const offsets = [
+    [0, 0],
+    [HIT_RADIUS_PX, 0],
+    [-HIT_RADIUS_PX, 0],
+    [0, HIT_RADIUS_PX],
+    [0, -HIT_RADIUS_PX],
+  ];
+  let best: HTMLElement | null = null;
+  let bestDistance = Number.POSITIVE_INFINITY;
+  const seen = new Set<HTMLElement>();
+
+  for (const [offsetX, offsetY] of offsets) {
+    const candidate = interactiveFromPoint(x + offsetX, y + offsetY);
+    if (!candidate || seen.has(candidate) || !pointerWithin(candidate, x, y, HIT_RADIUS_PX)) {
+      continue;
+    }
+    seen.add(candidate);
+    const rect = candidate.getBoundingClientRect();
+    const distance = Math.hypot(rect.left + rect.width / 2 - x, rect.top + rect.height / 2 - y);
+    if (distance < bestDistance) {
+      best = candidate;
+      bestDistance = distance;
+    }
+  }
+
+  return best;
 }
 
 function classifyCameraError(error: unknown): GazeErrorInfo {
@@ -326,6 +368,7 @@ export class GazeControlEngine {
   private interactionSuspended = false;
 
   private currentTarget: HTMLElement | null = null;
+  private targetLeftAt = 0;
   private dwellStartedAt = 0;
   private dwellConsumed = false;
 
@@ -480,6 +523,7 @@ export class GazeControlEngine {
     this.currentTarget = null;
     this.dwellStartedAt = 0;
     this.dwellConsumed = false;
+    this.targetLeftAt = 0;
   }
 
   private resetBlinkState(): void {
@@ -988,14 +1032,27 @@ export class GazeControlEngine {
     const screenY = bounded.y;
     const xNorm = screenX / viewportWidth;
     const yNorm = screenY / viewportHeight;
-    const scrolling = Math.abs(this.edgeScrollVelocity) > 4;
+    const inScrollZone =
+      this.edgeScrollState.zone !== null && Math.abs(this.edgeScrollVelocity) > 12;
 
     let dwellProgress = 0;
     let target: HTMLElement | null = null;
     const dwellEnabled = this.settings.activationMode !== 'blink';
 
-    if (!this.calibrationActive && !scrolling && !this.interactionSuspended) {
+    if (!this.calibrationActive && !inScrollZone && !this.interactionSuspended) {
       target = findInteractiveElement(screenX, screenY);
+      if (
+        !target &&
+        this.currentTarget?.isConnected &&
+        pointerWithin(this.currentTarget, screenX, screenY, STICKY_PADDING_PX)
+      ) {
+        if (this.targetLeftAt === 0) this.targetLeftAt = timestamp;
+        if (timestamp - this.targetLeftAt < TARGET_LEAVE_GRACE_MS) {
+          target = this.currentTarget;
+        }
+      } else {
+        this.targetLeftAt = 0;
+      }
 
       if (target !== this.currentTarget) {
         this.currentTarget = target;

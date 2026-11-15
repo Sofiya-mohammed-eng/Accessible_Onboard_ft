@@ -1,6 +1,7 @@
-import React, { useRef, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { Mic, Square, Volume2 } from 'lucide-react';
 import { startVoiceDictation, VoiceInputSession } from '../engines/accessibilityEngine';
+import { acquireMicrophone, releaseMicrophone } from '../engines/microphoneOwner';
 import { getLanguageOption } from '../engines/i18n';
 import { getPageCopy, unsupportedLanguageNotice } from '../engines/pageCopy';
 import { PreferredLanguage } from '../types/accessbridge';
@@ -18,6 +19,14 @@ export const VoiceDock: React.FC<VoiceDockProps> = ({ language, speaking, onSpea
   const [note, setNote] = useState('');
   const sessionRef = useRef<VoiceInputSession | null>(null);
 
+  useEffect(() => {
+    return () => {
+      sessionRef.current?.stop();
+      sessionRef.current = null;
+      releaseMicrophone('dock');
+    };
+  }, []);
+
   const readPage = () => {
     if (speaking) {
       onStop();
@@ -31,12 +40,15 @@ export const VoiceDock: React.FC<VoiceDockProps> = ({ language, speaking, onSpea
     if (sessionRef.current) {
       sessionRef.current.stop();
       sessionRef.current = null;
+      releaseMicrophone('dock');
       setListening(false);
       return;
     }
+    if (!acquireMicrophone('dock')) return;
     setNote(copy.listening);
     setListening(true);
     const session = startVoiceDictation({
+      owner: 'dock',
       lang: getLanguageOption(language).speechLang,
       onTranscript: (transcript, isFinal) => {
         const blocked = unsupportedLanguageNotice(transcript, language);
@@ -52,10 +64,16 @@ export const VoiceDock: React.FC<VoiceDockProps> = ({ language, speaking, onSpea
         setNote(blocked ? copy.languageNotSupported : message);
         setListening(false);
       },
-      onEnd: () => setListening(false),
+      onEnd: () => {
+        releaseMicrophone('dock');
+        setListening(false);
+      },
     });
     sessionRef.current = session;
-    if (!session) setListening(false);
+    if (!session) {
+      releaseMicrophone('dock');
+      setListening(false);
+    }
   };
 
   return (

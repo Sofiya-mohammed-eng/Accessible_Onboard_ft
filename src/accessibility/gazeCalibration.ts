@@ -215,21 +215,21 @@ export function defaultGazeMap(
   let y = 0.5;
 
   if (mode === 'hybrid') {
-    x += gated.headYaw * 1.15 + gated.eyeX * 0.6;
-    y += gated.headPitch * 1.1 + gated.eyeY * 0.75;
+    x += gated.headYaw * 2.8 + gated.eyeX * 1.05;
+    y += gated.headPitch * 2.6 + gated.eyeY * 1.25;
   } else if (mode === 'head') {
-    x += gated.headYaw * 2.0;
-    y += gated.headPitch * 2.0;
+    x += gated.headYaw * 3.4;
+    y += gated.headPitch * 3.2;
   } else {
-    x += gated.eyeX * 1.25;
-    y += gated.eyeY * 1.6;
+    x += gated.eyeX * 2.2;
+    y += gated.eyeY * 2.5;
   }
 
   return { x: clamp01(x), y: clamp01(y) };
 }
 
-const MIN_SENSITIVITY_GAIN = 1.0;
-const MAX_SENSITIVITY_GAIN = 2.2;
+const MIN_SENSITIVITY_GAIN = 1.15;
+const MAX_SENSITIVITY_GAIN = 2.6;
 
 export function sensitivityGain(sensitivity: number): number {
   return MIN_SENSITIVITY_GAIN + clamp01(sensitivity) * (MAX_SENSITIVITY_GAIN - MIN_SENSITIVITY_GAIN);

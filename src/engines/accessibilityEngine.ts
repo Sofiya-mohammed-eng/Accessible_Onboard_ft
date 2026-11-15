@@ -1,3 +1,14 @@
+import {
+  beginSpeechPause,
+  endSpeechPause,
+  microphoneOwner,
+  microphonePausedForSpeech,
+  releaseMicrophone,
+  waitForMicrophone,
+  wakeMicrophoneWaiters,
+  type MicrophoneOwner,
+} from './microphoneOwner';
+
 export interface SpeechSupportInfo {
   synthesisSupported: boolean;
   recognitionSupported: boolean;
@@ -283,12 +294,9 @@ export function speakAloud(
     if (token === speechToken) options?.onEnd?.();
   };
   const read = async () => {
+    beginSpeechPause();
+    releaseRecognitionForSpeech();
     try {
-      suppressRecognitionEnd = true;
-      activeRecognition?.stop();
-    } catch {
-      suppressRecognitionEnd = false;
-    }
     const amharicVoice = (lang || '').toLowerCase().startsWith('am');
     const played = await speakWithAudio(text, lang || 'en-US', rate, token);
     if (token !== speechToken) return;
@@ -316,6 +324,9 @@ export function speakAloud(
       status = await speakWithBrowser(text, lang, rate, token);
     }
     if (token === speechToken && status !== 'cancelled') done();
+    } finally {
+      endSpeechPause();
+    }
   };
   void read();
   return true;
@@ -389,6 +400,16 @@ function downsampleTo16k(chunks: Float32Array[], inputRate: number): ArrayBuffer
 
 let stopRecording: (() => void) | null = null;
 let captureGeneration = 0;
+let recordCaptureForTests: ((maxMs: number) => Promise<ArrayBuffer | null>) | null = null;
+let transcribeCaptureForTests: ((audio: ArrayBuffer) => Promise<string>) | null = null;
+
+export function setAmharicCaptureForTests(hooks: {
+  record: ((maxMs: number) => Promise<ArrayBuffer | null>) | null;
+  transcribe: ((audio: ArrayBuffer) => Promise<string>) | null;
+}): void {
+  recordCaptureForTests = hooks.record;
+  transcribeCaptureForTests = hooks.transcribe;
+}
 let sharedAudio: AudioContext | null = null;
 
 function listeningContext(): AudioContext {
@@ -473,22 +494,22 @@ async function transcribeAmharic(audio: ArrayBuffer): Promise<string> {
   return (data.transcript || '').trim();
 }
 
-async function listenAmharic(timeoutMs: number): Promise<string> {
+async function listenAmharic(timeoutMs: number, epoch: number): Promise<string> {
   const generation = captureGeneration;
-  try {
-    activeRecognition?.stop();
-  } catch {
-    // The browser recognizer does not understand Amharic, so it is stopped first.
-  }
+  releaseRecognitionForSpeech();
   await waitForQuiet(450);
   for (let attempt = 0; attempt < 2; attempt += 1) {
-    if (generation !== captureGeneration) return '';
-    const audio = await recordSpeechPcm(Math.min(timeoutMs, 10000));
-    if (generation !== captureGeneration) return '';
+    if (epoch !== conversationEpoch || generation !== captureGeneration || microphoneOwner() !== 'conversation') return '';
+    const audio = recordCaptureForTests
+      ? await recordCaptureForTests(Math.min(timeoutMs, 10000))
+      : await recordSpeechPcm(Math.min(timeoutMs, 10000));
+    if (epoch !== conversationEpoch || generation !== captureGeneration || microphoneOwner() !== 'conversation') return '';
     if (!audio || audio.byteLength < 3200) continue;
     try {
-      const transcript = await transcribeAmharic(audio);
-      if (generation !== captureGeneration) return '';
+      const transcript = transcribeCaptureForTests
+        ? await transcribeCaptureForTests(audio)
+        : await transcribeAmharic(audio);
+      if (epoch !== conversationEpoch || generation !== captureGeneration || microphoneOwner() !== 'conversation') return '';
       if (transcript) return transcript;
     } catch {
       return '';
@@ -501,36 +522,70 @@ function waitForQuiet(ms: number) {
   return new Promise((resolve) => window.setTimeout(resolve, ms));
 }
 
+let conversationEpoch = 0;
+let conversationSession: VoiceInputSession | null = null;
+
+export function stopConversationRecognition(): void {
+  conversationEpoch += 1;
+  const session = conversationSession;
+  conversationSession = null;
+  if (session?.isCurrent()) session.stop();
+  releaseMicrophone('conversation');
+  wakeMicrophoneWaiters();
+}
+
 export function listenOnce(lang: string, timeoutMs = 12000): Promise<string> {
-  if (lang.toLowerCase().startsWith('am')) return listenAmharic(timeoutMs);
+  const epoch = conversationEpoch;
+  const cancelled = () => epoch !== conversationEpoch;
+  return waitForMicrophone('conversation', cancelled).then((ready) => {
+    if (!ready || cancelled()) return '';
+    const capture = lang.toLowerCase().startsWith('am')
+      ? listenAmharic(timeoutMs, epoch)
+      : listenEnglish(lang, timeoutMs, epoch);
+    return capture.finally(() => {
+      releaseMicrophone('conversation');
+    });
+  });
+}
+
+function listenEnglish(lang: string, timeoutMs: number, epoch: number): Promise<string> {
   return new Promise((resolve) => {
     window.setTimeout(() => {
+      if (epoch !== conversationEpoch) {
+        resolve('');
+        return;
+      }
       let settled = false;
       let restarts = 0;
+      let session: VoiceInputSession | null = null;
       const finish = (value: string) => {
         if (settled) return;
         settled = true;
         window.clearTimeout(timer);
+        if (conversationSession === session) conversationSession = null;
         resolve(value);
       };
       const timer = window.setTimeout(() => {
-        try {
-          activeRecognition?.stop();
-        } catch {
-          // Ignore
+        if (epoch !== conversationEpoch) {
+          finish('');
+          return;
         }
+        if (session?.isCurrent()) session.stop();
         finish('');
       }, timeoutMs);
       let latest = '';
-      const session = startVoiceDictation({
+      session = startVoiceDictation({
+        owner: 'conversation',
         lang,
         onTranscript: (transcript, isFinal) => {
+          if (epoch !== conversationEpoch) return;
           latest = transcript.trim();
           if (!isFinal || !latest) return;
           finish(latest);
           session?.stop();
         },
         onError: (message) => {
+          if (epoch !== conversationEpoch) return;
           if (/no-speech|aborted/i.test(message)) return;
           if (/language-not-supported/i.test(message) && lang !== 'am-ET') {
             finish('');
@@ -540,7 +595,7 @@ export function listenOnce(lang: string, timeoutMs = 12000): Promise<string> {
           finish('');
         },
         onEnd: () => {
-          if (settled) return;
+          if (epoch !== conversationEpoch || settled) return;
           if (latest) {
             finish(latest);
             return;
@@ -551,16 +606,25 @@ export function listenOnce(lang: string, timeoutMs = 12000): Promise<string> {
             return;
           }
           window.setTimeout(() => {
-            if (settled) return;
+            if (settled || epoch !== conversationEpoch || !session?.isCurrent()) return;
             try {
-              session?.start();
+              session.start();
             } catch {
               finish('');
             }
           }, 250);
         },
       });
-      if (!session) finish('');
+      if (!session || epoch !== conversationEpoch) {
+        if (session?.isCurrent()) session.stop();
+        finish('');
+        return;
+      }
+      conversationSession = session;
+      onConversationSessionLost = () => {
+        if (settled || epoch !== conversationEpoch || session?.isCurrent()) return;
+        finish('');
+      };
     }, 350);
   });
 }
@@ -568,12 +632,32 @@ export function listenOnce(lang: string, timeoutMs = 12000): Promise<string> {
 export interface VoiceInputSession {
   stop: () => void;
   start: () => void;
+  isCurrent: () => boolean;
 }
 
 let activeRecognition: SpeechRecognitionInstanceLike | null = null;
-let suppressRecognitionEnd = false;
+let recognitionSerial = 0;
+let activeSerial = 0;
+
+let onConversationSessionLost: (() => void) | null = null;
+
+function releaseRecognitionForSpeech(): void {
+  const recognition = activeRecognition;
+  activeSerial = ++recognitionSerial;
+  activeRecognition = null;
+  const lost = onConversationSessionLost;
+  onConversationSessionLost = null;
+  lost?.();
+  if (!recognition) return;
+  try {
+    recognition.stop();
+  } catch {
+    // The recognizer may already be stopped.
+  }
+}
 
 export function startVoiceDictation(callbacks: {
+  owner: MicrophoneOwner;
   lang?: string;
   onTranscript: (transcript: string, isFinal: boolean) => void;
   onError: (message: string) => void;
@@ -581,6 +665,7 @@ export function startVoiceDictation(callbacks: {
   onStart?: () => void;
 }): VoiceInputSession | null {
   const Ctor = getSpeechRecognitionConstructor();
+  if (microphonePausedForSpeech() || microphoneOwner() !== callbacks.owner) return null;
   if (!Ctor) {
     callbacks.onError(
       'Speech recognition is not supported in this browser. Use the accessible text input or quick-phrase controls instead.'
@@ -589,19 +674,37 @@ export function startVoiceDictation(callbacks: {
     return null;
   }
 
+  const serial = ++recognitionSerial;
+  activeSerial = serial;
+  const previous = activeRecognition;
+  activeRecognition = null;
+  const lost = onConversationSessionLost;
+  onConversationSessionLost = null;
+  lost?.();
+  if (previous) {
+    try {
+      previous.stop();
+    } catch {
+      // The previous recognizer may already be stopped.
+    }
+  }
+
   try {
-    activeRecognition?.stop();
     const recognition = new Ctor();
+    const isCurrent = () => activeSerial === serial;
+    if (!isCurrent()) return null;
     activeRecognition = recognition;
     recognition.continuous = false;
     recognition.interimResults = true;
     recognition.lang = callbacks.lang || 'en-US';
 
     recognition.onstart = () => {
+      if (!isCurrent()) return;
       callbacks.onStart?.();
     };
 
     recognition.onresult = (event: SpeechRecognitionEventLike) => {
+      if (!isCurrent()) return;
       let combined = '';
       let hasFinal = false;
       for (let i = event.resultIndex; i < event.results.length; i += 1) {
@@ -615,6 +718,7 @@ export function startVoiceDictation(callbacks: {
     };
 
     recognition.onerror = (event: SpeechRecognitionErrorEventLike) => {
+      if (!isCurrent()) return;
       const reason =
         event.error === 'not-allowed'
           ? 'Microphone permission was denied. Please allow microphone access or continue with text input.'
@@ -622,19 +726,16 @@ export function startVoiceDictation(callbacks: {
       callbacks.onError(reason);
     };
 
-    let closedByUs = false;
     recognition.onend = () => {
+      if (!isCurrent()) return;
       if (activeRecognition === recognition) activeRecognition = null;
-      if (suppressRecognitionEnd || closedByUs) {
-        suppressRecognitionEnd = false;
-        return;
-      }
       callbacks.onEnd();
     };
 
-    recognition.start();
-    return {
+    const session: VoiceInputSession = {
+      isCurrent,
       start: () => {
+        if (!isCurrent()) return;
         activeRecognition = recognition;
         try {
           recognition.start();
@@ -643,7 +744,9 @@ export function startVoiceDictation(callbacks: {
         }
       },
       stop: () => {
-        closedByUs = true;
+        if (!isCurrent()) return;
+        activeSerial = ++recognitionSerial;
+        if (activeRecognition === recognition) activeRecognition = null;
         try {
           recognition.stop();
         } catch {
@@ -651,9 +754,14 @@ export function startVoiceDictation(callbacks: {
         }
       },
     };
+    if (!isCurrent()) return null;
+    recognition.start();
+    return session;
   } catch {
-    callbacks.onError('Unable to start browser speech recognition. Please use text input.');
-    callbacks.onEnd();
+    if (activeSerial === serial) {
+      callbacks.onError('Unable to start browser speech recognition. Please use text input.');
+      callbacks.onEnd();
+    }
     return null;
   }
 }

@@ -5,6 +5,7 @@ import {
   startVoiceDictation,
   VoiceInputSession,
 } from '../engines/accessibilityEngine';
+import { acquireMicrophone, releaseMicrophone } from '../engines/microphoneOwner';
 import { NavigationView } from '../types/accessbridge';
 
 interface NavigationHelperModalProps {
@@ -53,6 +54,8 @@ export const NavigationHelperModal: React.FC<NavigationHelperModalProps> = ({
   useEffect(() => {
     if (!isOpen) {
       voiceRef.current?.stop();
+      voiceRef.current = null;
+      releaseMicrophone('navigation');
       setIsListening(false);
       return;
     }
@@ -67,6 +70,8 @@ export const NavigationHelperModal: React.FC<NavigationHelperModalProps> = ({
     return () => {
       window.removeEventListener('keydown', handleKey);
       voiceRef.current?.stop();
+      voiceRef.current = null;
+      releaseMicrophone('navigation');
     };
   }, [isOpen, onClose]);
 
@@ -76,20 +81,25 @@ export const NavigationHelperModal: React.FC<NavigationHelperModalProps> = ({
     if (isListening) {
       voiceRef.current?.stop();
       voiceRef.current = null;
+      releaseMicrophone('navigation');
       setIsListening(false);
       setVoiceFeedback('Voice navigation stopped.');
       return;
     }
+    if (!acquireMicrophone('navigation')) return;
 
     setIsListening(true);
     setVoiceFeedback('Listening... Say "Dashboard", "Find Jobs", "Apply", "Verify", or "Review".');
 
     const session = startVoiceDictation({
+      owner: 'navigation',
       onTranscript: (transcript, isFinal) => {
         setVoiceFeedback(`Heard: "${transcript}"`);
         const matched = matchSpokenDestination(transcript);
         if (matched && isFinal) {
           voiceRef.current?.stop();
+          voiceRef.current = null;
+          releaseMicrophone('navigation');
           setIsListening(false);
           onNavigate(matched);
           onSpeakText(`Navigating to ${matched}`);
@@ -101,11 +111,13 @@ export const NavigationHelperModal: React.FC<NavigationHelperModalProps> = ({
         setIsListening(false);
       },
       onEnd: () => {
+        releaseMicrophone('navigation');
         setIsListening(false);
       },
     });
 
     if (!session) {
+      releaseMicrophone('navigation');
       setIsListening(false);
     } else {
       voiceRef.current = session;

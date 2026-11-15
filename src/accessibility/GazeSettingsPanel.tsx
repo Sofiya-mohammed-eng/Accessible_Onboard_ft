@@ -361,7 +361,7 @@ export function GazeSettingsPanel({
             <input
               id="gaze-dwell-duration"
               type="range"
-              min={400}
+              min={300}
               max={1500}
               step={50}
               value={preferences.gazeDwellMs}
@@ -447,7 +447,7 @@ export function GazeSettingsPanel({
               className="mt-1.5 h-2 w-full cursor-pointer accent-[#0056B3] high-contrast:accent-yellow-300"
             />
             <p className="mt-1 text-[11px] text-slate-500 high-contrast:text-slate-400">
-              Look into the top or bottom 60 pixels to scroll. Set to Off to disable edge scrolling.
+              Look into the top or bottom edge to scroll. Set to Off to disable edge scrolling.
             </p>
           </div>
 

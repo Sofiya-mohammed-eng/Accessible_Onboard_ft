@@ -41,9 +41,9 @@ export const DEFAULT_PREFERENCES: AccessibilityPreferences = {
   gazeControlEnabled: false,
   gazeTrackingMode: 'hybrid',
   gazeActivationMode: 'both',
-  gazeDwellMs: 800,
-  gazeSensitivity: 0.6,
-  gazeSmoothing: 0.45,
+  gazeDwellMs: 550,
+  gazeSensitivity: 0.78,
+  gazeSmoothing: 0.28,
   gazeEdgeScrollSpeed: 500,
 };
 
@@ -115,10 +115,21 @@ function safeReadArray<T>(key: string, fallback: T[]): T[] {
 
 export function loadPreferences(): AccessibilityPreferences {
   const loaded = safeRead(KEYS.PREFERENCES, DEFAULT_PREFERENCES);
+  const stillOnOriginalGazeDefaults =
+    loaded.gazeDwellMs === 800 &&
+    loaded.gazeSensitivity === 0.6 &&
+    loaded.gazeSmoothing === 0.45;
   return {
     ...loaded,
     language: loaded.language === 'am' ? 'am' : 'en',
     colorMode: loaded.colorMode === 'dark' ? 'dark' : 'light',
+    gazeDwellMs: stillOnOriginalGazeDefaults ? DEFAULT_PREFERENCES.gazeDwellMs : loaded.gazeDwellMs,
+    gazeSensitivity: stillOnOriginalGazeDefaults
+      ? DEFAULT_PREFERENCES.gazeSensitivity
+      : loaded.gazeSensitivity,
+    gazeSmoothing: stillOnOriginalGazeDefaults
+      ? DEFAULT_PREFERENCES.gazeSmoothing
+      : loaded.gazeSmoothing,
   };
 }
 

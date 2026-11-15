@@ -1,5 +1,11 @@
 import { useEffect, useRef } from 'react';
 import { startVoiceDictation, type VoiceInputSession } from '../engines/accessibilityEngine';
+import {
+  acquireMicrophone,
+  microphoneOwner,
+  releaseMicrophone,
+  subscribeMicrophone,
+} from '../engines/microphoneOwner';
 import { beginPermissionPrompt } from '../engines/browserPermissions';
 import { describeInteractiveElement, GazeControlEngine } from './gazeControlEngine';
 import { matchGazeVoiceCommand, type GazeVoiceCommand } from './gazeVoiceCommands';
@@ -36,6 +42,14 @@ export function useGazeVoiceCommands({
     let restartAllowed = true;
     let restartTimer: number | null = null;
     let session: VoiceInputSession | null = null;
+
+    const scheduleRestart = () => {
+      if (cancelled || !restartAllowed || restartTimer !== null) return;
+      restartTimer = window.setTimeout(() => {
+        restartTimer = null;
+        if (!cancelled && restartAllowed) void start();
+      }, 900);
+    };
 
     const executeCommand = (command: GazeVoiceCommand) => {
       const current = callbacksRef.current;
@@ -103,20 +117,23 @@ export function useGazeVoiceCommands({
     };
 
     const start = async () => {
-      if (cancelled) return;
+      if (cancelled || session?.isCurrent()) return;
+      if (!acquireMicrophone('gaze')) return;
       callbacksRef.current.onStatus(
         'starting',
         'Waiting for microphone permission and starting voice commands.'
       );
 
       const permissionRequest = await beginPermissionPrompt(['microphone']);
-      if (cancelled) {
+      if (cancelled || microphoneOwner() !== 'gaze') {
         permissionRequest.end();
+        releaseMicrophone('gaze');
         return;
       }
       const settlePermission = () => permissionRequest.end();
 
       const nextSession = startVoiceDictation({
+        owner: 'gaze',
         onStart: () => {
           settlePermission();
           if (cancelled) return;
@@ -145,28 +162,24 @@ export function useGazeVoiceCommands({
         onEnd: () => {
           settlePermission();
           session = null;
+          if (microphoneOwner() === 'gaze') releaseMicrophone('gaze');
           if (cancelled || !restartAllowed) return;
-          if (restartTimer !== null) {
-            window.clearTimeout(restartTimer);
-            restartTimer = null;
-          }
           callbacksRef.current.onStatus('starting', 'Restarting voice commands.');
-          restartTimer = window.setTimeout(() => {
-            restartTimer = null;
-            if (!cancelled && restartAllowed) void start();
-          }, 900);
+          scheduleRestart();
         },
       });
 
-      if (cancelled) {
+      if (cancelled || microphoneOwner() !== 'gaze') {
         settlePermission();
         nextSession?.stop();
+        releaseMicrophone('gaze');
         return;
       }
 
       if (nextSession) {
         session = nextSession;
       } else {
+        releaseMicrophone('gaze');
         restartAllowed = false;
         callbacksRef.current.onStatus(
           'error',
@@ -175,15 +188,22 @@ export function useGazeVoiceCommands({
       }
     };
 
+    const unsubscribe = subscribeMicrophone(() => {
+      if (cancelled || session?.isCurrent()) return;
+      scheduleRestart();
+    });
     void start();
 
     return () => {
       cancelled = true;
+      unsubscribe();
       if (restartTimer !== null) {
         window.clearTimeout(restartTimer);
         restartTimer = null;
       }
       session?.stop();
+      session = null;
+      releaseMicrophone('gaze');
     };
   }, [enabled, engine]);
 }

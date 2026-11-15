@@ -24,6 +24,9 @@ import {
 } from './engines/preferencesStore';
 import { speakAloud, stopSpeakingAloud } from './engines/accessibilityEngine';
 import { getLanguageOption } from './engines/i18n';
+import { ControlChoice, controlConfirmation } from './engines/controlChoice';
+import { ConversationEngine } from './engines/conversation/ConversationEngine';
+import { navigationShortcut } from './engines/conversation/keyboardContinue';
 import { getPageCopy } from './engines/pageCopy';
 import {
   AccessibilityPreferences,
@@ -47,8 +50,14 @@ export default function App() {
   const [isSpeaking, setIsSpeaking] = useState<boolean>(false);
   const [liveCaption, setLiveCaption] = useState<string>('');
   const [startupModalOpen, setStartupModalOpen] = useState<boolean>(false);
+  const [startupStep, setStartupStep] = useState<'language' | 'control'>('language');
   const [signedIn, setSignedIn] = useState<boolean>(() => sessionStorage.getItem('allways-signed-in') === '1');
   const mainRef = useRef<HTMLElement | null>(null);
+  const conversationEngineRef = useRef<ConversationEngine | null>(null);
+  if (conversationEngineRef.current === null) {
+    conversationEngineRef.current = new ConversationEngine(preferences.language);
+  }
+  const conversationEngine = conversationEngineRef.current;
 
   // Sync accessibility & language attributes onto <html> element
   useEffect(() => {
@@ -88,23 +97,10 @@ export default function App() {
     }, 0);
   }, [signedIn]);
 
-  // Global Keyboard Shortcuts (Alt+1 to Alt+7)
-  useEffect(() => {
-    const onKeyDown = (e: KeyboardEvent) => {
-      if (!e.altKey) return;
-      const map: Record<string, NavigationView> = {
-        '1': 'jobs',
-        '2': 'apply',
-        '3': 'login',
-      };
-      if (map[e.key]) {
-        e.preventDefault();
-        handleNavigate(map[e.key]);
-      }
-    };
-    window.addEventListener('keydown', onKeyDown);
-    return () => window.removeEventListener('keydown', onKeyDown);
-  }, [handleNavigate]);
+  const currentViewRef = useRef(currentView);
+  currentViewRef.current = currentView;
+  const signedInRef = useRef(signedIn);
+  signedInRef.current = signedIn;
 
   const handleSpeakText = useCallback(
     (text: string, langOverride?: string) => {
@@ -125,34 +121,6 @@ export default function App() {
     stopSpeakingAloud();
     setIsSpeaking(false);
   }, []);
-
-  const handleCompleteStartupModal = useCallback(
-    (destination: NavigationView) => {
-      handleUpdatePreferences({
-        languageSelected: true,
-        startupModalCompleted: true,
-        onboardingCompleted:
-          destination === 'dashboard' ? true : preferences.onboardingCompleted,
-      });
-      setStartupModalOpen(false);
-      const langInfo = getLanguageOption(preferences.language);
-      const chosenLabels = (preferences.preferredNavigationStyles || []).join(', ');
-      recordActivity(
-        `Language (${langInfo.englishName}) & navigation saved`,
-        chosenLabels || 'Standard navigation',
-        destination
-      );
-      handleNavigate(destination);
-    },
-    [
-      handleUpdatePreferences,
-      preferences.onboardingCompleted,
-      preferences.preferredNavigationStyles,
-      preferences.language,
-      recordActivity,
-      handleNavigate,
-    ]
-  );
 
   const handleUpdateDraft = useCallback((next: ApplicationDraft) => {
     setDraft(next);
@@ -191,13 +159,98 @@ export default function App() {
     [draft, intended, handleUpdateDraft, handleUpdateIntended, recordActivity, handleNavigate]
   );
 
+  const preferencesRef = useRef(preferences);
+  preferencesRef.current = preferences;
+  const adjustTextSize = useCallback((direction: 'increase' | 'decrease') => {
+    const order = ['normal', 'large', 'xlarge'] as const;
+    const index = Math.max(0, order.indexOf(preferencesRef.current.textSize));
+    const nextIndex = direction === 'increase' ? index + 1 : index - 1;
+    if (nextIndex < 0 || nextIndex >= order.length) return false;
+    handleUpdatePreferences({ textSize: order[nextIndex] });
+    return true;
+  }, [handleUpdatePreferences]);
+  const setSpokenLanguage = useCallback((language: PreferredLanguage) => {
+    handleUpdatePreferences({ language, languageSelected: true });
+  }, [handleUpdatePreferences]);
+  const openFindJobs = useCallback(() => {
+    const decision = navigationShortcut('1', signedIn, currentView);
+    if (!decision?.findJobs || decision.ok !== true) return false;
+    if (decision.destination) handleNavigate(decision.destination);
+    return true;
+  }, [currentView, handleNavigate, signedIn]);
+  const returnToRegistration = useCallback(() => {
+    handleNavigate('login');
+    return true;
+  }, [handleNavigate]);
+  useEffect(() => {
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (!event.altKey || event.repeat || event.ctrlKey || event.metaKey) return;
+      const decision = navigationShortcut(event.key, signedInRef.current, currentViewRef.current);
+      if (!decision) return;
+      event.preventDefault();
+      if (decision.findJobs) {
+        const turn = conversationEngine.handleUtterance('Find jobs.');
+        if (decision.destination) handleNavigate(decision.destination);
+        if (turn.action?.id === 'find-jobs') {
+          const reported = conversationEngine.reportAction(turn.action, decision.ok === true);
+          if (decision.ok !== true && reported.response) handleSpeakText(reported.response);
+        }
+        return;
+      }
+      if (decision.destination) handleNavigate(decision.destination);
+    };
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  }, [conversationEngine, handleNavigate, handleSpeakText]);
   const currentLangOption = getLanguageOption(preferences.language);
   const page = getPageCopy(preferences.language);
-  const openLanguage = useCallback(() => setStartupModalOpen(true), []);
+  const openLanguage = useCallback(() => {
+    setStartupStep('language');
+    setStartupModalOpen(true);
+  }, []);
   const openDashboard = useCallback(() => handleNavigate('dashboard'), [handleNavigate]);
   const chooseLanguage = useCallback(
-    (language: PreferredLanguage) => handleUpdatePreferences({ language, languageSelected: true }),
+    (language: PreferredLanguage) => {
+      handleUpdatePreferences({ language, languageSelected: true });
+      setStartupStep('control');
+    },
     [handleUpdatePreferences],
+  );
+  const chooseControl = useCallback(
+    (choice: ControlChoice, announce = false) => {
+      const gazeMode = choice === 'head' ? 'head' : choice === 'eyes' ? 'eye' : 'hybrid';
+      handleUpdatePreferences(
+        choice === 'voice'
+          ? {
+              gazeControlEnabled: false,
+              voiceCommands: true,
+              speechInput: true,
+              languageSelected: true,
+              startupModalCompleted: true,
+            }
+          : choice === 'keyboard'
+            ? {
+                gazeControlEnabled: false,
+                keyboardNavigation: true,
+                languageSelected: true,
+                startupModalCompleted: true,
+              }
+            : {
+                gazeControlEnabled: true,
+                gazeTrackingMode: gazeMode,
+                languageSelected: true,
+                startupModalCompleted: true,
+              },
+      );
+      setStartupModalOpen(false);
+      handleNavigate('login');
+      if (announce) {
+        const message = controlConfirmation(choice, preferences.language);
+        const lang = getLanguageOption(preferences.language).speechLang;
+        window.setTimeout(() => handleSpeakText(message, lang), 300);
+      }
+    },
+    [handleNavigate, handleSpeakText, handleUpdatePreferences, preferences.language],
   );
   const continueToSignIn = useCallback(() => {
     setStartupModalOpen(false);
@@ -367,11 +420,18 @@ export default function App() {
         rate={preferences.speechRate}
         pageKey={currentView}
         languageOpen={startupModalOpen}
+        startupStep={startupStep}
         onCaption={setLiveCaption}
         onGetStarted={openLanguage}
         onOpenDashboard={openDashboard}
         onChooseLanguage={chooseLanguage}
+        onChooseControl={chooseControl}
         onContinueToSignIn={continueToSignIn}
+        onAdjustTextSize={adjustTextSize}
+        onSetLanguage={setSpokenLanguage}
+        onOpenFindJobs={openFindJobs}
+        onReturnToRegistration={returnToRegistration}
+        conversationEngine={conversationEngine}
       />
       {!startupModalOpen && (
         <VoiceDock
@@ -384,13 +444,16 @@ export default function App() {
 
       <StartupAccessibilityModal
         isOpen={startupModalOpen}
+        step={startupStep}
         preferences={preferences}
         isSpeaking={isSpeaking}
         onUpdatePreferences={handleUpdatePreferences}
         onSpeakText={handleSpeakText}
         onStopSpeaking={handleStopSpeaking}
         onOpenNavigationHelper={() => setStartupModalOpen(false)}
-        onCompleteAndGo={handleCompleteStartupModal}
+        onContinueFromLanguage={() => chooseLanguage(preferences.language)}
+        onChooseControl={(choice) => chooseControl(choice, true)}
+        onBackToLanguage={() => setStartupStep('language')}
         onClose={() => setStartupModalOpen(false)}
         canCloseDirectly={preferences.languageSelected}
       />

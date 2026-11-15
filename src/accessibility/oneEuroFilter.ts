@@ -88,9 +88,9 @@ export class OneEuroFilter2D {
   private readonly yFilter: OneEuroFilter;
 
   constructor(options: OneEuroFilter2DOptions = {}) {
-    const smoothing = Math.min(1, Math.max(0, options.smoothing ?? 0.45));
-    const minCutoff = 0.55 + (1 - smoothing) * 2.8;
-    const beta = options.beta ?? 0.35;
+    const smoothing = Math.min(1, Math.max(0, options.smoothing ?? 0.28));
+    const minCutoff = 1.1 + (1 - smoothing) * 2.2;
+    const beta = options.beta ?? 0.9;
 
     this.xFilter = new OneEuroFilter({ minCutoff, beta });
     this.yFilter = new OneEuroFilter({ minCutoff, beta });

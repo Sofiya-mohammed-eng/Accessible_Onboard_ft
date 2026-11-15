@@ -1,9 +1,20 @@
 import { useEffect, useRef, useState } from 'react';
-import { listenOnce, speakAndWait, stopSpeakingAloud } from '../engines/accessibilityEngine';
+import { listenOnce, speakAndWait, stopConversationRecognition, stopSpeakingAloud } from '../engines/accessibilityEngine';
 import { getLanguageOption, getLocalizedCopy } from '../engines/i18n';
 import { getPageCopy, unsupportedLanguageNotice } from '../engines/pageCopy';
 import { interpretAccount } from '../engines/accountIntent';
 import { emailLooksValid, normalizeSpokenEmail } from '../engines/spokenEmail';
+import {
+  ControlChoice,
+  controlConfirmation,
+  controlPrompt,
+  controlRetry,
+  interpretControlChoice,
+} from '../engines/controlChoice';
+import { executeAction } from '../engines/conversation/ActionRegistry';
+import { ConversationEngine } from '../engines/conversation/ConversationEngine';
+import { focusNamedField, goToNextQuestion, openHeaderNavigation, readVisiblePage } from '../engines/conversation/pageActions';
+import { emailQuestion, nameQuestion, passwordQuestion, passwordReceived } from '../engines/conversation/ResponseGenerator';
 import { PreferredLanguage } from '../types/accessbridge';
 
 interface BlindConversationProps {
@@ -12,11 +23,18 @@ interface BlindConversationProps {
   rate: number;
   pageKey: string;
   languageOpen: boolean;
+  startupStep: 'language' | 'control';
   onCaption: (text: string) => void;
   onGetStarted: () => void;
   onOpenDashboard: () => void;
   onChooseLanguage: (language: PreferredLanguage) => void;
+  onChooseControl: (choice: ControlChoice) => void;
   onContinueToSignIn: () => void;
+  onAdjustTextSize?: (direction: 'increase' | 'decrease') => boolean;
+  onSetLanguage?: (language: PreferredLanguage) => void;
+  onOpenFindJobs?: () => boolean;
+  onReturnToRegistration?: () => boolean;
+  conversationEngine: ConversationEngine;
 }
 
 const GET_STARTED = ['get started', 'get start', 'lets start', "let's start", 'start', 'ጀምር', 'ጀምሩ', 'ጀመር', 'ጀምሪ', 'እንጀምር', 'ጀምረን', 'ጀምርልኝ', 'እጀምር', 'ተጀመር', 'jemer', 'jemir', 'jemr', 'gemer', 'gemir', 'jemeru'];
@@ -169,15 +187,36 @@ export function BlindConversation({
   rate,
   pageKey,
   languageOpen,
+  startupStep,
   onCaption,
   onGetStarted,
   onOpenDashboard,
   onChooseLanguage,
+  onChooseControl,
   onContinueToSignIn,
+  onAdjustTextSize,
+  onSetLanguage,
+  onOpenFindJobs,
+  onReturnToRegistration,
+  conversationEngine,
 }: BlindConversationProps) {
   const [promptKey, setPromptKey] = useState(pageKey);
+  const engineRef = useRef(conversationEngine);
+  engineRef.current = conversationEngine;
+  const adjustTextRef = useRef(onAdjustTextSize);
+  const setLanguageRef = useRef(onSetLanguage);
+  const openJobsRef = useRef(onOpenFindJobs);
+  const returnRef = useRef(onReturnToRegistration);
+  adjustTextRef.current = onAdjustTextSize;
+  setLanguageRef.current = onSetLanguage;
+  openJobsRef.current = onOpenFindJobs;
+  returnRef.current = onReturnToRegistration;
   const captionRef = useRef(onCaption);
   const languageRef = useRef(language);
+  const pageKeyRef = useRef(pageKey);
+  const rateRef = useRef(rate);
+  pageKeyRef.current = pageKey;
+  rateRef.current = rate;
   const lastProblemRef = useRef('');
   const problemSpeechRef = useRef<Promise<void>>(Promise.resolve());
   const guideActiveRef = useRef(false);
@@ -236,7 +275,63 @@ export function BlindConversation({
       return once(speechLang());
     };
 
-    const confirmField = async (field: HTMLInputElement | HTMLTextAreaElement): Promise<'done' | 'fix-email'> => {
+    const engine = engineRef.current;
+    engine.setLanguage(currentLanguage());
+    const formTaskId = () => {
+      if (pageKey === 'apply') return 'application';
+      if (engine.hasTask('registration')) return 'registration';
+      if (engine.hasTask('sign-in')) return 'sign-in';
+      return pageKey === 'login' ? 'account' : 'form';
+    };
+    const routeUtterance = async (text: string): Promise<{ kind: 'forward'; text: string } | { kind: 'again' } | { kind: 'stop' } | { kind: 'leave' }> => {
+      let current = text;
+      for (let hop = 0; hop < 6 && !cancelled; hop += 1) {
+        const turn = engine.handleUtterance(current);
+        if (!turn.consumed) return { kind: 'forward', text: turn.forwardText || current };
+        if (turn.intent === 'cancel_task') {
+          if (turn.response) await say(turn.response);
+          return { kind: 'stop' };
+        }
+        if (turn.intent === 'resume_task' && pageKey === 'jobs') {
+          if (turn.response) await say(turn.response);
+          const returned = returnRef.current?.() ?? false;
+          if (!returned) {
+            await say(amharic() ? 'ወደ ምዝገባው መመለስ አልቻልኩም።' : 'I could not return to registration.');
+          }
+          return { kind: 'leave' };
+        }
+        if (turn.action) {
+          if (turn.action.id === 'set-language' && turn.action.language) {
+            languageRef.current = turn.action.language;
+            setLanguageRef.current?.(turn.action.language);
+          }
+          const result = executeAction(
+            {
+              openHeaderNavigation: () => openHeaderNavigation(document),
+              readCurrentPage: () => readVisiblePage(document.getElementById('main-content')),
+              adjustTextSize: (direction) => adjustTextRef.current?.(direction) ?? false,
+              focusField: (target) => focusNamedField(document.getElementById('main-content'), target),
+              readFormQuestion: () => engine.pendingPrompt(),
+              goToNextQuestion: () => goToNextQuestion(document.getElementById('main-content')),
+              openFindJobs: () => openJobsRef.current?.() ?? false,
+            },
+            turn.action,
+          );
+          const after = engine.reportAction(turn.action, result.ok, result.detail);
+          if (after.response) await say(after.response);
+          if (!engine.isAwaitingResume()) return { kind: 'again' };
+          const follow = await hear();
+          if (!follow) return { kind: 'again' };
+          current = follow;
+          continue;
+        }
+        if (turn.response) await say(turn.response);
+        return { kind: 'again' };
+      }
+      return { kind: 'again' };
+    };
+
+    const confirmField = async (field: HTMLInputElement | HTMLTextAreaElement): Promise<'done' | 'fix-email' | 'stop'> => {
       const label = (field.labels?.[0]?.innerText || field.getAttribute('aria-label') || '').replace(/\s+/g, ' ').trim();
       const emailField = field.type === 'email';
       const ask = amharic()
@@ -246,6 +341,10 @@ export function BlindConversation({
       const check = amharic() ? 'ትክክል ከሆነ አዎ ይበሉ። ካልሆነ ትክክል አይደለም ይበሉ።' : 'Say yes if that is right. If not, say it is not correct.';
       const prepare = (value: string) => (emailField ? normalizeSpokenEmail(value) : value.trim());
       const repeatHeard = async (raw: string, next: string) => {
+        if (field instanceof HTMLInputElement && field.type === 'password') {
+          await say(`${passwordReceived(currentLanguage())} ${check}`);
+          return;
+        }
         const addedAt = emailField && !raw.includes('@') && next.includes('@');
         if (addedAt) {
           await say(amharic()
@@ -274,17 +373,50 @@ export function BlindConversation({
             : 'Okay. That is not correct. I cleared it. Say it again.'));
         return true;
       };
+      const taskId = formTaskId();
+      const questionId = emailField
+        ? 'email'
+        : field instanceof HTMLInputElement && field.type === 'password'
+          ? 'password'
+          : 'answer';
+      const acceptField = () => {
+        if (!field.value.trim()) return;
+        if (emailField && !emailLooksValid(field.value)) return;
+        const stored = questionId === 'password' ? '' : field.value;
+        engine.completeQuestion(taskId, questionId, stored);
+      };
+      if (engine.taskStatus(taskId) === 'cancelled') return 'stop';
+      engine.ensureTask(taskId, taskId);
+      if (engine.isCompleted(taskId, questionId) && field.value.trim()) return 'done';
+      if (engine.taskStatus(taskId) === 'active') {
+        engine.ask(taskId, {
+          id: questionId,
+          prompt: emailField ? emailQuestion(currentLanguage()) : ask,
+          field: emailField ? 'email' : 'text',
+        });
+      }
       let attempt = 0;
+      let skipAsk = false;
       while (attempt < 8 && !cancelled) {
         attempt += 1;
+        if (engine.taskStatus(taskId) === 'cancelled') return 'stop';
         field.focus();
-        await say(ask);
-        const raw = await hear();
+        if (!skipAsk) await say(ask);
+        skipAsk = false;
+        let raw = await hear();
         if (cancelled) return 'done';
         if (!raw) {
           await say(amharic() ? 'አልሰማሁም። እንደገና ይናገሩ።' : 'I did not hear you. Please say it again.');
           continue;
         }
+        const routed = await routeUtterance(raw);
+        if (routed.kind === 'stop') return 'stop';
+        if (routed.kind === 'leave') return 'done';
+        if (routed.kind === 'again') {
+          skipAsk = engine.takeRepeatedPrompt();
+          continue;
+        }
+        raw = routed.text;
         if (!emailField && wantsCorrection(raw) && (raw.includes('ኢሜይል') || raw.includes('ኢሜል') || raw.toLowerCase().includes('email'))) {
           return 'fix-email';
         }
@@ -304,8 +436,17 @@ export function BlindConversation({
           setFieldValue(field, heard);
           await repeatHeard(raw, heard);
         }
-        const rawAnswer = await hear();
+        const rawAnswerHeard = await hear();
         if (cancelled) return 'done';
+        if (!rawAnswerHeard) continue;
+        const routedAnswer = await routeUtterance(rawAnswerHeard);
+        if (routedAnswer.kind === 'stop') return 'stop';
+        if (routedAnswer.kind === 'leave') return 'done';
+        if (routedAnswer.kind === 'again') {
+          skipAsk = engine.takeRepeatedPrompt();
+          continue;
+        }
+        const rawAnswer = routedAnswer.text;
         if (!emailField && wantsCorrection(rawAnswer) && (rawAnswer.includes('ኢሜይል') || rawAnswer.includes('ኢሜል') || rawAnswer.toLowerCase().includes('email'))) {
           return 'fix-email';
         }
@@ -315,6 +456,7 @@ export function BlindConversation({
         }
         if (wantsNext(rawAnswer)) {
           if (emailField && !emailLooksValid(field.value)) continue;
+          acceptField();
           return 'done';
         }
         const answer = prepare(rawAnswer);
@@ -328,13 +470,26 @@ export function BlindConversation({
         }
         setFieldValue(field, answer);
         await repeatHeard(rawAnswer, answer);
-        const second = await hear();
+        const secondHeard = await hear();
+        if (!secondHeard) continue;
+        const routedSecond = await routeUtterance(secondHeard);
+        if (routedSecond.kind === 'stop') return 'stop';
+        if (routedSecond.kind === 'leave') return 'done';
+        if (routedSecond.kind === 'again') {
+          skipAsk = engine.takeRepeatedPrompt();
+          continue;
+        }
+        const second = routedSecond.text;
         if (wantsCorrection(second)) {
           await acceptCorrection(second);
           continue;
         }
-        if (wantsNext(second)) return 'done';
+        if (wantsNext(second)) {
+          acceptField();
+          return 'done';
+        }
       }
+      if (!(emailField && !emailLooksValid(field.value)) && field.value.trim()) acceptField();
       return emailField && !emailLooksValid(field.value) ? 'fix-email' : 'done';
     };
 
@@ -361,7 +516,8 @@ export function BlindConversation({
       });
       for (const field of fields) {
         if (cancelled) return;
-        await confirmField(field);
+        const result = await confirmField(field);
+        if (result === 'stop') return;
       }
     };
 
@@ -369,7 +525,7 @@ export function BlindConversation({
       const root = document.getElementById('main-content');
       if (!root || cancelled) return;
 
-      if (languageOpen) {
+      if (languageOpen && startupStep !== 'control') {
         await say('Say English, or say Amharic. እንግሊዝኛ ወይም አማርኛ ይበሉ።');
         for (let attempt = 0; attempt < 4 && !cancelled; attempt += 1) {
           const choice = (await hear('am-ET')) || (await hear('en-US'));
@@ -380,10 +536,25 @@ export function BlindConversation({
           }
           languageRef.current = next;
           onChooseLanguage(next);
-          await say(next === 'am' ? 'አማርኛ ተመርጧል።' : 'English is selected.');
-          onContinueToSignIn();
           return;
         }
+        return;
+      }
+
+      if (languageOpen && startupStep === 'control') {
+        await say(controlPrompt(currentLanguage()));
+        for (let attempt = 0; attempt < 4 && !cancelled; attempt += 1) {
+          const heard = await hear(speechLang());
+          const choice = interpretControlChoice(heard);
+          if (!choice) {
+            await say(controlRetry(currentLanguage()));
+            continue;
+          }
+          await say(controlConfirmation(choice, currentLanguage()));
+          onChooseControl(choice);
+          return;
+        }
+        onContinueToSignIn();
         return;
       }
 
@@ -417,30 +588,37 @@ export function BlindConversation({
 
       if (pageKey === 'login') {
         const phrases = { yes: YES, signIn: SIGN_IN, register: REGISTER };
-        await say(amharic()
-          ? 'መግባት ወይም መመዝገብ ይችላሉ። ኢሜይል ወይም የይለፍ ቃል ቢሉኝ እረዳለሁ።'
-          : 'You can sign in or register. You can also tell me your email or your password.');
-        let register = false;
+        const waitingId = (['registration', 'sign-in'] as const).find((id) => {
+          const status = engine.taskStatus(id);
+          return (status === 'paused' || status === 'active') && Boolean(engine.pendingQuestion());
+        });
+        let register = waitingId === 'registration';
         let carry = '';
-        while (!cancelled && !carry) {
-          const choice = await hear();
-          if (cancelled) return;
-          if (!choice) {
-            await say(amharic() ? 'ግባ፣ ተመዝገብ፣ ኢሜይል ወይም የይለፍ ቃል ይበሉ።' : 'Say sign in, register, your email, or your password.');
-            continue;
-          }
-          const intent = interpretAccount(choice, phrases);
-          if (intent.register || intent.signIn || intent.email || intent.password || intent.name) {
-            register = intent.register && !intent.signIn ? true : intent.register;
-            if (intent.signIn && !intent.register) register = false;
-            carry = choice;
-            break;
-          }
+        if (!waitingId) {
           await say(amharic()
-            ? `ሰማሁ። ${choice}. ግባ ወይም ተመዝገብ ይበሉ። ኢሜይል ወይም የይለፍ ቃልም መናገር ይችላሉ።`
-            : `I heard ${choice}. Say sign in or register. You can also say your email or your password.`);
+            ? 'መግባት ወይም መመዝገብ ይችላሉ። ኢሜይል ወይም የይለፍ ቃል ቢሉኝ እረዳለሁ።'
+            : 'You can sign in or register. You can also tell me your email or your password.');
+          while (!cancelled && !carry) {
+            const choice = await hear();
+            if (cancelled) return;
+            if (!choice) {
+              await say(amharic() ? 'ግባ፣ ተመዝገብ፣ ኢሜይል ወይም የይለፍ ቃል ይበሉ።' : 'Say sign in, register, your email, or your password.');
+              continue;
+            }
+            const intent = interpretAccount(choice, phrases);
+            if (intent.register || intent.signIn || intent.email || intent.password || intent.name) {
+              register = intent.register && !intent.signIn ? true : intent.register;
+              if (intent.signIn && !intent.register) register = false;
+              carry = choice;
+              break;
+            }
+            const echoed = intent.password ? passwordReceived(currentLanguage()) : choice;
+            await say(amharic()
+              ? `ሰማሁ። ${echoed}. ግባ ወይም ተመዝገብ ይበሉ። ኢሜይል ወይም የይለፍ ቃልም መናገር ይችላሉ።`
+              : `I heard ${echoed}. Say sign in or register. You can also say your email or your password.`);
+          }
+          if (cancelled || !carry) return;
         }
-        if (cancelled || !carry) return;
         root.querySelector<HTMLButtonElement>(`[data-voice-choice="${register ? 'register' : 'login'}"]`)?.click();
         await wait(350);
         const formRoot = document.getElementById('main-content');
@@ -452,12 +630,17 @@ export function BlindConversation({
         let lastTopic: 'email' | 'password' | 'name' | '' = '';
         let pending: { kind: 'email' | 'password' | 'name'; value: string } | null = null;
         const confirmLine = (kind: 'email' | 'password' | 'name', value: string) => {
+          if (kind === 'password') {
+            return amharic()
+              ? `${passwordReceived('am')} ትክክል ከሆነ አዎ ይበሉ። ካልሆነ ትክክል አይደለም ይበሉ።`
+              : `${passwordReceived('en')} Say yes if that is right. If not, say it is not correct.`;
+          }
           const spoken = kind === 'email' ? speakableEmail(value, amharic()) : value;
           if (amharic()) {
-            const lead = kind === 'email' ? 'ኢሜይልዎን ሰማሁ' : kind === 'password' ? 'የይለፍ ቃልዎን ሰማሁ' : 'ስምዎን ሰማሁ';
+            const lead = kind === 'email' ? 'ኢሜይልዎን ሰማሁ' : 'ስምዎን ሰማሁ';
             return `${lead}። ${spoken}. ትክክል ከሆነ አዎ ይበሉ። ካልሆነ ትክክል አይደለም ይበሉ።`;
           }
-          const lead = kind === 'email' ? 'I heard your email' : kind === 'password' ? 'I heard your password' : 'I heard your name';
+          const lead = kind === 'email' ? 'I heard your email' : 'I heard your name';
           return `${lead}, ${spoken}. Say yes if that is right. If not, say it is not correct.`;
         };
         const savePending = () => {
@@ -473,6 +656,7 @@ export function BlindConversation({
             if (name) setFieldValue(name, pending.value);
           }
           lastTopic = pending.kind;
+          engine.completeQuestion(accountTask, pending.kind, pending.kind === 'password' ? '' : pending.value);
           pending = null;
         };
         const nextNeed = () => {
@@ -488,14 +672,73 @@ export function BlindConversation({
           if (passwords[1] && !passwords[1].value.trim()) return amharic() ? 'ተመሳሳይ የይለፍ ቃል ከሆነ አዎ ይበሉ።' : 'If the password is the same, say yes.';
           return amharic() ? 'ሁለቱም ዝግጁ ናቸው። ለመግባት ግባ ይበሉ። ለማስተካከል ትክክል አይደለም ይበሉ።' : 'Both are ready. Say sign in. If something is wrong, say it is not correct.';
         };
+        const accountTask = register ? 'registration' : 'sign-in';
+        engine.ensureTask(accountTask, accountTask);
+        const syncAccountQuestion = () => {
+          if (engine.taskStatus(accountTask) !== 'active') return;
+          const email = emailInput();
+          const passwords = passwordInputs();
+          const name = nameInput();
+          if (email && !email.value.trim()) {
+            const savedEmail = engine.savedAnswer(accountTask, 'email');
+            if (savedEmail) setFieldValue(email, savedEmail);
+          }
+          if (!email || !emailLooksValid(email.value)) {
+            engine.ask(accountTask, { id: 'email', prompt: emailQuestion(currentLanguage()), field: 'email' });
+            return;
+          }
+          if (!engine.isCompleted(accountTask, 'email')) engine.completeQuestion(accountTask, 'email', email.value);
+          if (!passwords[0]?.value.trim()) {
+            engine.ask(accountTask, { id: 'password', prompt: passwordQuestion(currentLanguage()), field: 'password' });
+            return;
+          }
+          if (!engine.isCompleted(accountTask, 'password')) engine.completeQuestion(accountTask, 'password', '');
+          if (register && name && !name.value.trim()) {
+            engine.ask(accountTask, { id: 'name', prompt: nameQuestion(currentLanguage()), field: 'name' });
+          } else if (register && name?.value.trim() && !engine.isCompleted(accountTask, 'name')) {
+            engine.completeQuestion(accountTask, 'name', name.value);
+          }
+        };
         while (!cancelled) {
-          const heard = carry || await hear();
+          if (engine.taskStatus(accountTask) === 'cancelled') {
+            const heardRestart = carry || await hear();
+            carry = '';
+            if (!heardRestart) {
+              await say(amharic()
+                ? 'ምዝገባው ተሰርዟል። መልሶችዎ በቅጹ ላይ አሉ። እንደገና ለመጀመር ምዝገባውን እንደገና ጀምር ይበሉ።'
+                : 'Registration is cancelled. Your answers are still in the form. Say restart registration to begin again.');
+              continue;
+            }
+            await routeUtterance(heardRestart);
+            if (engine.taskStatus(accountTask) === 'cancelled') {
+              await say(amharic()
+                ? 'ምዝገባው ተሰርዟል። መልሶችዎ በቅጹ ላይ አሉ። እንደገና ለመጀመር ምዝገባውን እንደገና ጀምር ይበሉ።'
+                : 'Registration is cancelled. Your answers are still in the form. Say restart registration to begin again.');
+            }
+            continue;
+          }
+          syncAccountQuestion();
+          const repeated = engine.takeRepeatedPrompt();
+          let heardRaw = carry;
           carry = '';
+          if (!heardRaw) {
+            const askEmail = !repeated
+              && engine.taskStatus(accountTask) === 'active'
+              && engine.pendingQuestion()?.id === 'email'
+              && !emailLooksValid(emailInput()?.value || '');
+            if (askEmail) await say(emailQuestion(currentLanguage()));
+            heardRaw = await hear();
+          }
           if (cancelled) return;
-          if (!heard) {
+          if (!heardRaw) {
             await say(amharic() ? 'እየሰማሁ ነው። ኢሜይል ወይም የይለፍ ቃል ይናገሩ።' : 'I am listening. Tell me your email or your password.');
             continue;
           }
+          const routed = await routeUtterance(heardRaw);
+          if (routed.kind === 'leave') return;
+          if (routed.kind === 'stop') continue;
+          if (routed.kind !== 'forward') continue;
+          const heard = routed.text;
           const intent = interpretAccount(heard, phrases);
           if (maybePassword) {
             const offered = maybePassword;
@@ -505,8 +748,8 @@ export function BlindConversation({
               if (fields[0]) setFieldValue(fields[0], offered);
               const emailReadyNow = Boolean(emailInput() && emailLooksValid(emailInput()?.value || ''));
               await say(amharic()
-                ? `እሺ። የይለፍ ቃልዎን አስቀምጫለሁ። ${offered}. ${emailReadyNow ? 'ለመግባት ግባ ይበሉ።' : 'ኢሜይልዎን ገና እየጠበቅኩ ነው።'}`
-                : `Okay. I saved your password, ${offered}. ${emailReadyNow ? 'Say sign in when you are ready.' : 'I still need your email.'}`);
+                ? `አመሰግናለሁ። የይለፍ ቃልዎን ተቀብዬአለሁ። ${emailReadyNow ? 'ለመግባት ግባ ይበሉ።' : 'ኢሜይልዎን ገና እየጠበቅኩ ነው።'}`
+                : `${passwordReceived('en')} ${emailReadyNow ? 'Say sign in when you are ready.' : 'I still need your email.'}`);
               continue;
             }
             if (!intent.email && !intent.password && !intent.correction && !intent.clearEmail && !intent.clearPassword) {
@@ -569,8 +812,8 @@ export function BlindConversation({
           if (!intent.clearEmail && !intent.clearPassword && !intent.clearName && !intent.signIn && !intent.register && !intent.yes) {
             maybePassword = heard.trim();
             await say(amharic()
-              ? `${heard} ኢሜይል አይደለም። የይለፍ ቃልዎ ከሆነ አዎ ይበሉ። ኢሜይል ከሆነ ኢሜይሉን ይናገሩ።`
-              : `${heard} is not an email. If it is your password, say yes. Or tell me your email.`);
+              ? 'ይህ ኢሜይል አይደለም። የይለፍ ቃልዎ ከሆነ አዎ ይበሉ። ኢሜይል ከሆነ ኢሜይሉን ይናገሩ።'
+              : 'That is not an email. If it is your password, say yes. Or tell me your email.');
             continue;
           }
           if (passwords[1] && passwordReady && !passwords[1].value.trim() && intent.yes && !pending) {
@@ -597,6 +840,28 @@ export function BlindConversation({
       }
 
       if (pageKey === 'jobs') {
+        const accountPaused = engine.taskStatus('registration') === 'paused' || engine.taskStatus('sign-in') === 'paused';
+        let leaving = false;
+        const hearJob = async (lang?: string) => {
+          const heard = await hear(lang);
+          if (!heard || leaving) return '';
+          if (!accountPaused) return heard;
+          const routed = await routeUtterance(heard);
+          if (routed.kind === 'leave') {
+            leaving = true;
+            return '';
+          }
+          if (routed.kind !== 'forward') return '';
+          return routed.text;
+        };
+        if (accountPaused && !cancelled) {
+          const prompt = engine.pendingPrompt();
+          await say(prompt
+            ? (amharic()
+              ? `ስራ ፈልግ ተከፍቷል። ${prompt} ለመመለስ ወደ ኢሜይሉ ተመለስ ይበሉ።`
+              : `Find Jobs is open. ${prompt} Say go back to my email question when you want to continue.`)
+            : (amharic() ? 'ስራ ፈልግ ተከፍቷል።' : 'Find Jobs is open.'));
+        }
         const jobButtons = () => [...root.querySelectorAll<HTMLButtonElement>('[data-voice-apply]')];
         if (jobButtons().length > 0) {
           const searchInput = root.querySelector<HTMLInputElement>('#opportunity-search');
@@ -607,8 +872,8 @@ export function BlindConversation({
             : 'What job do you want? Say the kind of work.');
           let narrowed = false;
           for (let attempt = 0; attempt < 4 && !cancelled && !narrowed; attempt += 1) {
-            const request = await hear(amharic() ? 'am-ET' : undefined);
-            if (cancelled) return;
+            const request = await hearJob(amharic() ? 'am-ET' : undefined);
+            if (cancelled || leaving) return;
             if (!request) {
               await say(amharic() ? 'አልሰማሁም። የሚፈልጉትን ሥራ ይናገሩ።' : 'I did not hear you. Say the job you want.');
               continue;
@@ -657,7 +922,8 @@ export function BlindConversation({
             ? 'ለማመልከት አመልክት ይበሉ። ወይም የሥራውን ስም ይበሉ።'
             : 'Say apply. Or say the name of the job.');
           for (let attempt = 0; attempt < 4 && !cancelled; attempt += 1) {
-            const command = await hear(amharic() ? 'am-ET' : undefined);
+            const command = await hearJob(amharic() ? 'am-ET' : undefined);
+            if (cancelled || leaving) return;
             if (!command) {
               await say(amharic() ? 'አልሰማሁም። አመልክት ይበሉ። ወይም የሥራውን ስም ይበሉ።' : 'I did not hear you. Say apply, or say the job name.');
               continue;
@@ -688,7 +954,8 @@ export function BlindConversation({
           ? 'ቀጣዩ ደረጃ ማመልከት ነው። ለማመልከት አመልክት ይበሉ።'
           : 'The next step is to apply. Say apply.');
         for (let attempt = 0; attempt < 4 && !cancelled; attempt += 1) {
-          const command = await hear();
+          const command = await hearJob();
+          if (cancelled || leaving) return;
           if (!command) {
             await say(amharic() ? 'አልሰማሁም። አመልክት ይበሉ።' : 'I did not hear you. Say apply.');
             continue;
@@ -738,12 +1005,16 @@ export function BlindConversation({
           };
           openButton?.focus();
           for (let attempt = 0; attempt < 4 && !cancelled; attempt += 1) {
-            const command = await hear();
+            const commandHeard = await hear();
             if (cancelled) return;
-            if (!command) {
+            if (!commandHeard) {
               await say(amharic() ? 'አልሰማሁም። ቀጥል ይበሉ። ወይም ፋይል ክፈት ይበሉ።' : 'I did not hear you. Say continue. Or say open file.');
               continue;
             }
+            const routed = await routeUtterance(commandHeard);
+            if (routed.kind === 'stop') return;
+            if (routed.kind !== 'forward') continue;
+            const command = routed.text;
             await say(amharic() ? `ሰማሁ። ${command}` : `I heard ${command}.`);
             if (includesAny(command, OPEN_FILE) && !wantsNext(command)) {
               openButton?.focus();
@@ -782,7 +1053,8 @@ export function BlindConversation({
         }
         for (const field of textFields(root)) {
           if (cancelled) return;
-          await confirmField(field);
+          const filled = await confirmField(field);
+          if (filled === 'stop') return;
         }
         const continueButton = root.querySelector<HTMLButtonElement>('[data-voice="next"], [data-voice="submit"]');
         if (!continueButton) return;
@@ -791,11 +1063,15 @@ export function BlindConversation({
           ? (amharic() ? 'ቀጣዩ ደረጃ መላክ ነው። ማመልከቻውን ለመጨረስ ላክ ይበሉ።' : 'The next step is to send it. Say submit to finish the application.')
           : (amharic() ? 'ቀጣዩ ደረጃ ይህን መልስ ማለፍ ነው። ቀጥል ይበሉ።' : 'The next step is to move on. Say continue.'));
         for (let attempt = 0; attempt < 4 && !cancelled; attempt += 1) {
-          const command = await hear();
-          if (!command) {
+          const commandHeard = await hear();
+          if (!commandHeard) {
             await say(amharic() ? 'አልሰማሁም። እንደገና ይናገሩ።' : 'I did not hear you. Please say it again.');
             continue;
           }
+          const routed = await routeUtterance(commandHeard);
+          if (routed.kind === 'stop') return;
+          if (routed.kind !== 'forward') continue;
+          const command = routed.text;
           await say(amharic() ? `ሰማሁ። ${command}` : `I heard ${command}.`);
           if (!wantsCorrection(command) && (wantsNext(command) || wantsApply(command) || includesAny(command, [page().submitApplication]))) {
             if (continueButton.disabled) {
@@ -813,7 +1089,8 @@ export function BlindConversation({
             if (fix === 'answer') {
               for (const field of textFields(root)) {
                 if (cancelled) return;
-                await confirmField(field);
+                const filled = await confirmField(field);
+                if (filled === 'stop') return;
               }
             }
             await say(submitting
@@ -835,19 +1112,44 @@ export function BlindConversation({
       cancelled = true;
       guideActiveRef.current = false;
       window.clearTimeout(timer);
+      stopConversationRecognition();
       stopSpeakingAloud();
     };
   }, [
     enabled,
     languageOpen,
+    onChooseControl,
     onChooseLanguage,
     onContinueToSignIn,
+    startupStep,
     onGetStarted,
     onOpenDashboard,
     pageKey,
     promptKey,
     rate,
   ]);
+
+  const resumeConversation = () => {
+    const engine = engineRef.current;
+    if (!engine.isAwaitingResume()) return;
+    const turn = engine.handleUtterance('continue');
+    if (turn.intent !== 'resume_task') return;
+    const sayResume = (text: string) => {
+      captionRef.current(text);
+      void speakAndWait(text, {
+        lang: getLanguageOption(languageRef.current).speechLang,
+        rate: rateRef.current,
+        onCaption: captionRef.current,
+      });
+    };
+    if (turn.response) sayResume(turn.response);
+    if (pageKeyRef.current === 'jobs') {
+      const returned = returnRef.current?.() ?? false;
+      if (!returned) {
+        sayResume(languageRef.current === 'am' ? 'ወደ ምዝገባው መመለስ አልቻልኩም።' : 'I could not return to registration.');
+      }
+    }
+  };
 
   useEffect(() => {
     if (!enabled) return;
@@ -878,5 +1180,16 @@ export function BlindConversation({
     };
   }, [enabled, rate]);
 
-  return null;
+  if (!conversationEngine.isAwaitingResume()) return null;
+
+  return (
+    <button
+      type="button"
+      data-voice="resume"
+      onClick={resumeConversation}
+      className="fixed bottom-4 right-4 z-30 rounded-xl bg-[#0e2a4a] px-4 py-3 text-sm font-bold text-white shadow-lg"
+    >
+      {language === 'am' ? 'ተመለስ' : 'Resume'}
+    </button>
+  );
 }

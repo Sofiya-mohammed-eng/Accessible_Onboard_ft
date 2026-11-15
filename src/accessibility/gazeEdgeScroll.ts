@@ -1,8 +1,8 @@
 import type { GazeEdgeScrollState, GazeEdgeScrollZone } from './gazeTypes';
 
-export const GAZE_SCROLL_ZONE_PX = 60;
+export const GAZE_SCROLL_ZONE_PX = 36;
 export const GAZE_SCROLL_ZONE_HYSTERESIS_PX = 8;
-export const GAZE_EDGE_MARGIN_PX = 34;
+export const GAZE_EDGE_MARGIN_PX = 12;
 export const GAZE_EDGE_SCROLL_ACCELERATION = 1800;
 export const GAZE_EDGE_SCROLL_MIN_SPEED = 0;
 export const GAZE_EDGE_SCROLL_MAX_SPEED = 1200;
