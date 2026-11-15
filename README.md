@@ -64,3 +64,7 @@ The result is written to `assets/js/onboarding.js`.
 - The WCAG 2.2 AA conformance report is added separately.
 
 The original Savanna static pages README is kept as README-savanna.md.
+
+## Integrating on another platform
+
+See integration/INTEGRATION.md for the one-line install and examples.
