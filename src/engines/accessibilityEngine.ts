@@ -28,6 +28,7 @@ interface SpeechRecognitionInstanceLike {
   lang: string;
   start: () => void;
   stop: () => void;
+  onstart: (() => void) | null;
   onresult: ((event: SpeechRecognitionEventLike) => void) | null;
   onerror: ((event: SpeechRecognitionErrorEventLike) => void) | null;
   onend: (() => void) | null;
@@ -577,6 +578,7 @@ export function startVoiceDictation(callbacks: {
   onTranscript: (transcript: string, isFinal: boolean) => void;
   onError: (message: string) => void;
   onEnd: () => void;
+  onStart?: () => void;
 }): VoiceInputSession | null {
   const Ctor = getSpeechRecognitionConstructor();
   if (!Ctor) {
@@ -594,6 +596,10 @@ export function startVoiceDictation(callbacks: {
     recognition.continuous = false;
     recognition.interimResults = true;
     recognition.lang = callbacks.lang || 'en-US';
+
+    recognition.onstart = () => {
+      callbacks.onStart?.();
+    };
 
     recognition.onresult = (event: SpeechRecognitionEventLike) => {
       let combined = '';

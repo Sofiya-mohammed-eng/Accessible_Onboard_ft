@@ -11,6 +11,10 @@ export type NavigationView =
 
 export type TextSizeOption = 'normal' | 'large' | 'xlarge';
 
+export type GazeTrackingMode = 'hybrid' | 'head' | 'eye';
+
+export type GazeActivationMode = 'dwell' | 'blink' | 'both';
+
 export type PreferredLanguage = 'en' | 'am';
 
 export type ColorMode = 'light' | 'dark';
@@ -64,6 +68,14 @@ export interface AccessibilityPreferences {
   reducedMotion: boolean;
   speechRate: number;
   onboardingCompleted: boolean;
+
+  gazeControlEnabled: boolean;
+  gazeTrackingMode: GazeTrackingMode;
+  gazeActivationMode: GazeActivationMode;
+  gazeDwellMs: number;
+  gazeSensitivity: number;
+  gazeSmoothing: number;
+  gazeEdgeScrollSpeed: number;
 }
 
 export type PageElementCategory =

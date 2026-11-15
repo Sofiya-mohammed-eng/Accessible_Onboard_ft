@@ -38,6 +38,13 @@ export const DEFAULT_PREFERENCES: AccessibilityPreferences = {
   reducedMotion: false,
   speechRate: 1.0,
   onboardingCompleted: false,
+  gazeControlEnabled: false,
+  gazeTrackingMode: 'hybrid',
+  gazeActivationMode: 'both',
+  gazeDwellMs: 800,
+  gazeSensitivity: 0.6,
+  gazeSmoothing: 0.45,
+  gazeEdgeScrollSpeed: 500,
 };
 
 export const DEFAULT_INTENDED_VALUES: IntendedApplicationValues = {

@@ -9,6 +9,9 @@ import { LoginToApply } from './components/LoginToApply';
 import { VoiceDock } from './components/VoiceDock';
 import { BlindConversation } from './components/BlindConversation';
 import { StartupAccessibilityModal } from './components/StartupAccessibilityModal';
+import { BrowserPermissionBanner } from './components/BrowserPermissionBanner';
+import { GazeControlManager } from './accessibility/GazeControlManager';
+import { shouldAutoStartGaze } from './accessibility/gazeCalibration';
 import {
   appendActivity,
   loadActivities,
@@ -33,7 +36,10 @@ import {
 } from './types/accessbridge';
 
 export default function App() {
-  const [preferences, setPreferences] = useState<AccessibilityPreferences>(() => loadPreferences());
+  const [preferences, setPreferences] = useState<AccessibilityPreferences>(() => {
+    const loaded = loadPreferences();
+    return shouldAutoStartGaze() ? { ...loaded, gazeControlEnabled: true } : loaded;
+  });
   const [draft, setDraft] = useState<ApplicationDraft>(() => loadApplicationDraft());
   const [intended, setIntended] = useState<IntendedApplicationValues>(() => loadIntendedValues());
   const [, setActivities] = useState<ActivityLogItem[]>(() => loadActivities());
@@ -388,6 +394,12 @@ export default function App() {
         onClose={() => setStartupModalOpen(false)}
         canCloseDirectly={preferences.languageSelected}
       />
+
+      <GazeControlManager
+        preferences={preferences}
+        onUpdatePreferences={handleUpdatePreferences}
+      />
+      <BrowserPermissionBanner />
     </div>
   );
 }
