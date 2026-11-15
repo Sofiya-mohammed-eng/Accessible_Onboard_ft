@@ -1,3 +1,4 @@
+const API_BASE = (document.currentScript as HTMLScriptElement | null)?.dataset.api ?? '';
 export interface SpeechSupportInfo {
   synthesisSupported: boolean;
   recognitionSupported: boolean;
@@ -166,7 +167,7 @@ async function speakWithAudio(text: string, lang: string, rate: number, token: n
   const voiceCode = lang.toLowerCase().startsWith('am') ? 'am' : 'en';
   for (const part of chunkText(text)) {
     if (token !== speechToken) return false;
-    const url = `/api/tts?lang=${voiceCode}&text=${encodeURIComponent(part)}`;
+    const url = `${API_BASE}/api/tts?lang=${voiceCode}&text=${encodeURIComponent(part)}`;
     const played = await playAudioUrl(url, rate, token);
     if (!played) return false;
   }
@@ -453,7 +454,7 @@ function recordSpeechPcm(maxMs: number): Promise<ArrayBuffer | null> {
 }
 
 async function transcribeAmharic(audio: ArrayBuffer): Promise<string> {
-  const response = await fetch('/api/stt?lang=am-ET', {
+  const response = await fetch(`${API_BASE}/api/stt?lang=am-ET`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/octet-stream' },
     body: audio,
