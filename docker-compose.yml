@@ -1,0 +1,13 @@
+services:
+  api:
+    build: ./login-api
+    ports:
+      - "8000:8000"
+    environment:
+      SPEECH_API_KEY: ${SPEECH_API_KEY:-}
+  web:
+    image: nginx:alpine
+    volumes:
+      - ".:/usr/share/nginx/html:ro"
+    ports:
+      - "8080:80"
