@@ -6,6 +6,7 @@ import {
   releaseMicrophone,
   waitForMicrophone,
   wakeMicrophoneWaiters,
+  watchMicrophoneOwner,
   type MicrophoneOwner,
 } from './microphoneOwner';
 
@@ -402,13 +403,16 @@ let stopRecording: (() => void) | null = null;
 let captureGeneration = 0;
 let recordCaptureForTests: ((maxMs: number) => Promise<ArrayBuffer | null>) | null = null;
 let transcribeCaptureForTests: ((audio: ArrayBuffer) => Promise<string>) | null = null;
+let releaseCaptureForTests: (() => void) | null = null;
 
 export function setAmharicCaptureForTests(hooks: {
   record: ((maxMs: number) => Promise<ArrayBuffer | null>) | null;
   transcribe: ((audio: ArrayBuffer) => Promise<string>) | null;
+  release?: (() => void) | null;
 }): void {
   recordCaptureForTests = hooks.record;
   transcribeCaptureForTests = hooks.transcribe;
+  releaseCaptureForTests = hooks.release ?? null;
 }
 let sharedAudio: AudioContext | null = null;
 
@@ -428,57 +432,107 @@ if (typeof window !== 'undefined') {
 
 function recordSpeechPcm(maxMs: number): Promise<ArrayBuffer | null> {
   return new Promise((resolve) => {
+    let settled = false;
+    let stream: MediaStream | null = null;
+    let unsubscribe = () => {};
+    let processor: ScriptProcessorNode | null = null;
+    let source: MediaStreamAudioSourceNode | null = null;
+    let mute: GainNode | null = null;
+    let resourcesReleased = false;
+    const releaseStream = () => {
+      processor?.disconnect();
+      source?.disconnect();
+      mute?.disconnect();
+      processor = null;
+      source = null;
+      mute = null;
+      const current = stream;
+      stream = null;
+      current?.getTracks().forEach((track) => track.stop());
+      if (resourcesReleased) return;
+      resourcesReleased = true;
+      releaseCaptureForTests?.();
+    };
+    const finish = (audio: ArrayBuffer | null) => {
+      if (settled) {
+        const late = stream;
+        stream = null;
+        late?.getTracks().forEach((track) => track.stop());
+        return;
+      }
+      settled = true;
+      unsubscribe();
+      if (stopRecording === requestStop) stopRecording = null;
+      releaseStream();
+      resolve(microphoneOwner() === 'conversation' ? audio : null);
+    };
+    const requestStop = () => finish(null);
+    unsubscribe = watchMicrophoneOwner(() => {
+      if (microphoneOwner() !== 'conversation') requestStop();
+    });
+    stopRecording = requestStop;
+    if (microphoneOwner() !== 'conversation') {
+      finish(null);
+      return;
+    }
     void (async () => {
-      let stream: MediaStream;
       try {
         stream = await navigator.mediaDevices.getUserMedia({
           audio: { channelCount: 1, echoCancellation: true, noiseSuppression: true, autoGainControl: true },
         });
       } catch {
-        resolve(null);
+        finish(null);
         return;
       }
-      const context = listeningContext();
-      await context.resume().catch(() => undefined);
-      const source = context.createMediaStreamSource(stream);
-      const processor = context.createScriptProcessor(4096, 1, 1);
-      const mute = context.createGain();
-      mute.gain.value = 0;
-      const chunks: Float32Array[] = [];
-      let heard = false;
-      let silence = 0;
-      let settled = false;
-      const started = performance.now();
-      const finish = () => {
-        if (settled) return;
-        settled = true;
-        if (stopRecording === finish) stopRecording = null;
-        processor.onaudioprocess = null;
-        processor.disconnect();
-        source.disconnect();
-        mute.disconnect();
-        stream.getTracks().forEach((track) => track.stop());
-        resolve(heard ? downsampleTo16k(chunks, context.sampleRate || 48000) : null);
-      };
-      processor.onaudioprocess = (event) => {
-        const input = event.inputBuffer.getChannelData(0);
-        chunks.push(new Float32Array(input));
-        let energy = 0;
-        for (let i = 0; i < input.length; i += 1) energy += input[i] * input[i];
-        const rms = Math.sqrt(energy / input.length);
-        if (rms > 0.012) {
-          heard = true;
-          silence = 0;
-        } else if (heard) {
-          silence += (input.length / (context.sampleRate || 48000)) * 1000;
+      if (settled || microphoneOwner() !== 'conversation') {
+        const late = stream;
+        stream = null;
+        late.getTracks().forEach((track) => track.stop());
+        if (!settled) finish(null);
+        return;
+      }
+      try {
+        const context = listeningContext();
+        await context.resume().catch(() => undefined);
+        if (settled || microphoneOwner() !== 'conversation') {
+          finish(null);
+          return;
         }
-        const elapsed = performance.now() - started;
-        if ((heard && silence > 800) || elapsed > maxMs || (!heard && elapsed > 8000)) finish();
-      };
-      stopRecording = finish;
-      source.connect(processor);
-      processor.connect(mute);
-      mute.connect(context.destination);
+        source = context.createMediaStreamSource(stream);
+        processor = context.createScriptProcessor(4096, 1, 1);
+        mute = context.createGain();
+        mute.gain.value = 0;
+        const chunks: Float32Array[] = [];
+        let heard = false;
+        let silence = 0;
+        const started = performance.now();
+        processor.onaudioprocess = (event) => {
+          if (microphoneOwner() !== 'conversation') {
+            requestStop();
+            return;
+          }
+          const input = event.inputBuffer.getChannelData(0);
+          chunks.push(new Float32Array(input));
+          let energy = 0;
+          for (let i = 0; i < input.length; i += 1) energy += input[i] * input[i];
+          const rms = Math.sqrt(energy / input.length);
+          if (rms > 0.012) {
+            heard = true;
+            silence = 0;
+          } else if (heard) {
+            silence += (input.length / (context.sampleRate || 48000)) * 1000;
+          }
+          const elapsed = performance.now() - started;
+          if ((heard && silence > 800) || elapsed > maxMs || (!heard && elapsed > 8000)) {
+            finish(heard ? downsampleTo16k(chunks, context.sampleRate || 48000) : null);
+          }
+        };
+        source.connect(processor);
+        processor.connect(mute);
+        mute.connect(context.destination);
+      } catch {
+        finish(null);
+      }
     })();
   });
 }
@@ -494,15 +548,41 @@ async function transcribeAmharic(audio: ArrayBuffer): Promise<string> {
   return (data.transcript || '').trim();
 }
 
+function captureAmharic(maxMs: number): Promise<ArrayBuffer | null> {
+  const record = recordCaptureForTests;
+  if (!record) return recordSpeechPcm(maxMs);
+  return new Promise((resolve) => {
+    let settled = false;
+    const finish = (audio: ArrayBuffer | null) => {
+      if (settled) return;
+      settled = true;
+      unsubscribe();
+      resolve(microphoneOwner() === 'conversation' ? audio : null);
+    };
+    const unsubscribe = watchMicrophoneOwner(() => {
+      if (microphoneOwner() !== 'conversation') {
+        releaseCaptureForTests?.();
+        finish(null);
+      }
+    });
+    if (microphoneOwner() !== 'conversation') {
+      finish(null);
+      return;
+    }
+    void Promise.resolve(record(maxMs)).then(
+      (audio) => finish(audio),
+      () => finish(null),
+    );
+  });
+}
+
 async function listenAmharic(timeoutMs: number, epoch: number): Promise<string> {
   const generation = captureGeneration;
   releaseRecognitionForSpeech();
   await waitForQuiet(450);
   for (let attempt = 0; attempt < 2; attempt += 1) {
     if (epoch !== conversationEpoch || generation !== captureGeneration || microphoneOwner() !== 'conversation') return '';
-    const audio = recordCaptureForTests
-      ? await recordCaptureForTests(Math.min(timeoutMs, 10000))
-      : await recordSpeechPcm(Math.min(timeoutMs, 10000));
+    const audio = await captureAmharic(Math.min(timeoutMs, 10000));
     if (epoch !== conversationEpoch || generation !== captureGeneration || microphoneOwner() !== 'conversation') return '';
     if (!audio || audio.byteLength < 3200) continue;
     try {
@@ -543,7 +623,7 @@ export function listenOnce(lang: string, timeoutMs = 12000): Promise<string> {
       ? listenAmharic(timeoutMs, epoch)
       : listenEnglish(lang, timeoutMs, epoch);
     return capture.finally(() => {
-      releaseMicrophone('conversation');
+      if (epoch === conversationEpoch) releaseMicrophone('conversation');
     });
   });
 }
@@ -640,14 +720,18 @@ let recognitionSerial = 0;
 let activeSerial = 0;
 
 let onConversationSessionLost: (() => void) | null = null;
+let onActiveSessionInvalidated: (() => void) | null = null;
 
-function releaseRecognitionForSpeech(): void {
+function discardActiveRecognition(): void {
   const recognition = activeRecognition;
   activeSerial = ++recognitionSerial;
   activeRecognition = null;
   const lost = onConversationSessionLost;
   onConversationSessionLost = null;
+  const invalidate = onActiveSessionInvalidated;
+  onActiveSessionInvalidated = null;
   lost?.();
+  invalidate?.();
   if (!recognition) return;
   try {
     recognition.stop();
@@ -656,12 +740,17 @@ function releaseRecognitionForSpeech(): void {
   }
 }
 
+function releaseRecognitionForSpeech(): void {
+  discardActiveRecognition();
+}
+
 export function startVoiceDictation(callbacks: {
   owner: MicrophoneOwner;
   lang?: string;
   onTranscript: (transcript: string, isFinal: boolean) => void;
   onError: (message: string) => void;
   onEnd: () => void;
+  onInvalidate?: () => void;
   onStart?: () => void;
 }): VoiceInputSession | null {
   const Ctor = getSpeechRecognitionConstructor();
@@ -674,20 +763,9 @@ export function startVoiceDictation(callbacks: {
     return null;
   }
 
+  discardActiveRecognition();
   const serial = ++recognitionSerial;
   activeSerial = serial;
-  const previous = activeRecognition;
-  activeRecognition = null;
-  const lost = onConversationSessionLost;
-  onConversationSessionLost = null;
-  lost?.();
-  if (previous) {
-    try {
-      previous.stop();
-    } catch {
-      // The previous recognizer may already be stopped.
-    }
-  }
 
   try {
     const recognition = new Ctor();
@@ -728,6 +806,7 @@ export function startVoiceDictation(callbacks: {
 
     recognition.onend = () => {
       if (!isCurrent()) return;
+      onActiveSessionInvalidated = null;
       if (activeRecognition === recognition) activeRecognition = null;
       callbacks.onEnd();
     };
@@ -745,6 +824,8 @@ export function startVoiceDictation(callbacks: {
       },
       stop: () => {
         if (!isCurrent()) return;
+        const invalidate = onActiveSessionInvalidated;
+        onActiveSessionInvalidated = null;
         activeSerial = ++recognitionSerial;
         if (activeRecognition === recognition) activeRecognition = null;
         try {
@@ -752,13 +833,18 @@ export function startVoiceDictation(callbacks: {
         } catch {
           // Ignore
         }
+        invalidate?.();
       },
     };
     if (!isCurrent()) return null;
+    onActiveSessionInvalidated = () => {
+      callbacks.onInvalidate?.();
+    };
     recognition.start();
     return session;
   } catch {
     if (activeSerial === serial) {
+      onActiveSessionInvalidated = null;
       callbacks.onError('Unable to start browser speech recognition. Please use text input.');
       callbacks.onEnd();
     }

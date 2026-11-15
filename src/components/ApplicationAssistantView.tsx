@@ -5,7 +5,7 @@ import {
   startVoiceDictation,
   VoiceInputSession,
 } from '../engines/accessibilityEngine';
-import { acquireMicrophone, releaseMicrophone } from '../engines/microphoneOwner';
+import { beginDictation, noteAfterDictationLoss, noteAfterQuietDictation, releaseDictation } from '../engines/dictationControl';
 import { getLanguageOption } from '../engines/i18n';
 import { getPageCopy, unsupportedLanguageNotice } from '../engines/pageCopy';
 import {
@@ -70,14 +70,31 @@ export const ApplicationAssistantView: React.FC<ApplicationAssistantViewProps> =
   const jobTitle = draft.jobTitle.trim() || 'Customer Support Associate';
   const employer = draft.employer.trim() || 'Selam Digital Services';
   const [step, setStep] = useState(1);
-  const [answers, setAnswers] = useState(SAMPLE_ANSWERS);
+  const [answers, setAnswers] = useState(() => {
+    try {
+      const saved = sessionStorage.getItem('allways-gateway-answers');
+      if (!saved) return SAMPLE_ANSWERS;
+      const parsed = JSON.parse(saved) as Partial<typeof SAMPLE_ANSWERS>;
+      return {
+        ...SAMPLE_ANSWERS,
+        name: parsed.name || SAMPLE_ANSWERS.name,
+        phone: parsed.phone || SAMPLE_ANSWERS.phone,
+        experience: parsed.experience || SAMPLE_ANSWERS.experience,
+      };
+    } catch {
+      return SAMPLE_ANSWERS;
+    }
+  });
   const [submitted, setSubmitted] = useState(false);
   const [agreed, setAgreed] = useState(true);
   const [voiceNote, setVoiceNote] = useState('');
+  const [dictating, setDictating] = useState(false);
   const [formError, setFormError] = useState('');
   const [speaking, setSpeaking] = useState(false);
   const headingRef = useRef<HTMLHeadingElement>(null);
   const voiceRef = useRef<VoiceInputSession | null>(null);
+  const dictationToken = useRef(0);
+  const heardDictation = useRef(false);
   const speech = detectSpeechSupport();
 
   useEffect(() => {
@@ -87,9 +104,10 @@ export const ApplicationAssistantView: React.FC<ApplicationAssistantViewProps> =
 
   useEffect(() => {
     return () => {
+      dictationToken.current += 1;
       voiceRef.current?.stop();
       voiceRef.current = null;
-      releaseMicrophone('dictation');
+      releaseDictation();
     };
   }, []);
 
@@ -132,45 +150,87 @@ export const ApplicationAssistantView: React.FC<ApplicationAssistantViewProps> =
     window.setTimeout(() => setSpeaking(false), 1200);
   };
 
+  const loseDictation = (token: number) => {
+    if (dictationToken.current !== token) return;
+    dictationToken.current += 1;
+    voiceRef.current = null;
+    releaseDictation();
+    setDictating(false);
+    setVoiceNote((current) => noteAfterDictationLoss(preferences.language, current));
+  };
+
   const dictate = (key: AnswerKey) => {
-    if (voiceRef.current) {
+    if (voiceRef.current?.isCurrent()) {
+      dictationToken.current += 1;
       voiceRef.current.stop();
       voiceRef.current = null;
-      releaseMicrophone('dictation');
+      releaseDictation();
+      setDictating(false);
       setVoiceNote(page.voiceStopped);
       return;
     }
+    voiceRef.current = null;
     if (!speech.recognitionSupported) {
       setAnswer(key, answers[key] || page.voiceAdded);
       setVoiceNote(page.voiceAdded);
       return;
     }
-    if (!acquireMicrophone('dictation')) return;
-    setVoiceNote(page.voiceListening);
+    const request = beginDictation(preferences.language);
+    if (!request.ok) {
+      setDictating(false);
+      setVoiceNote(request.note);
+      return;
+    }
+    const token = dictationToken.current + 1;
+    dictationToken.current = token;
+    heardDictation.current = false;
+    setDictating(true);
+    setVoiceNote(request.note);
     const session = startVoiceDictation({
       owner: 'dictation',
       lang: speechLang,
+      onInvalidate: () => loseDictation(token),
       onTranscript: (transcript, isFinal) => {
-        if (!isFinal) return;
+        if (dictationToken.current !== token || !isFinal) return;
         const blocked = unsupportedLanguageNotice(transcript, preferences.language);
         if (blocked) {
           setVoiceNote(blocked);
           onSpeakText(blocked);
           return;
         }
+        heardDictation.current = true;
         setAnswer(key, transcript);
         setVoiceNote(page.voiceAdded);
       },
       onError: (message) => {
+        if (dictationToken.current !== token) return;
+        dictationToken.current += 1;
+        voiceRef.current = null;
+        releaseDictation();
+        setDictating(false);
         setVoiceNote(/language-not-supported/i.test(message) ? page.languageNotSupported : message);
       },
       onEnd: () => {
+        if (dictationToken.current !== token) return;
+        const heard = heardDictation.current;
+        dictationToken.current += 1;
+        heardDictation.current = false;
         voiceRef.current = null;
-        releaseMicrophone('dictation');
+        releaseDictation();
+        setDictating(false);
+        setVoiceNote((current) => noteAfterQuietDictation(preferences.language, current, heard));
       },
     });
+    if (dictationToken.current !== token) {
+      if (session?.isCurrent()) session.stop();
+      return;
+    }
     voiceRef.current = session;
-    if (!session) releaseMicrophone('dictation');
+    if (!session) {
+      dictationToken.current += 1;
+      releaseDictation();
+      setDictating(false);
+    }
   };
 
   if (submitted) {
@@ -386,13 +446,15 @@ export const ApplicationAssistantView: React.FC<ApplicationAssistantViewProps> =
             <button
               type="button"
               onClick={() => dictate(question.key)}
-              className="mt-3 inline-flex items-center gap-2 rounded-xl border border-[#9eb8d6] bg-white px-4 py-3 text-sm font-bold text-[#0d4f9e] high-contrast:border-white high-contrast:bg-black high-contrast:text-white"
+              aria-pressed={dictating}
+              aria-describedby={voiceNote ? 'application-dictation-status' : undefined}
+              className="mt-3 inline-flex items-center gap-2 rounded-xl border border-[#9eb8d6] bg-white px-4 py-3 text-sm font-bold text-[#0d4f9e] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#f5a623] high-contrast:border-white high-contrast:bg-black high-contrast:text-white"
             >
               <Mic className="h-4 w-4" aria-hidden="true" />
               {page.answerByVoice}
             </button>
             {voiceNote && (
-              <p role="status" className="mt-3 text-sm text-slate-600 high-contrast:text-slate-200">
+              <p id="application-dictation-status" role="status" className="mt-3 text-sm text-slate-600 high-contrast:text-slate-200">
                 {voiceNote}
               </p>
             )}

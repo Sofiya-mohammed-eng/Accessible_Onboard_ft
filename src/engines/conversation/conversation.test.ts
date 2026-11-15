@@ -10,6 +10,7 @@ import { detectIntent } from './IntentDetector';
 import { passwordReceived, emailQuestion } from './ResponseGenerator';
 import { redactUserText } from './ContextMemory';
 import { keyboardEffects, navigationShortcut } from './keyboardContinue';
+import { listenOnce, setAmharicCaptureForTests } from '../accessibilityEngine';
 import {
   acquireMicrophone,
   microphoneOwner,
@@ -526,6 +527,40 @@ describe('conversation engine', () => {
     assert.equal(navigationShortcut('3', false, 'jobs')?.resumeConversation, false);
     assert.equal(engine.taskStatus('registration'), 'paused');
     assert.equal(engine.pendingQuestion()?.id, 'email');
+  });
+
+  it('keeps the pending email question when an Amharic listen is interrupted', async () => {
+    resetMicrophoneOwnerForTests();
+    (globalThis as unknown as { window: Record<string, unknown> }).window = {
+      setTimeout: globalThis.setTimeout.bind(globalThis),
+      clearTimeout: globalThis.clearTimeout.bind(globalThis),
+      addEventListener() {},
+      removeEventListener() {},
+    };
+    const engine = registration();
+    let started = false;
+    setAmharicCaptureForTests({
+      record: () => {
+        started = true;
+        return new Promise(() => undefined);
+      },
+      transcribe: async () => 'should-not-apply',
+    });
+    try {
+      const pending = listenOnce('am-ET', 800);
+      for (let attempt = 0; attempt < 40 && !started; attempt += 1) {
+        await new Promise((resolve) => setTimeout(resolve, 25));
+      }
+      assert.equal(started, true);
+      assert.equal(acquireMicrophone('dictation'), true);
+      assert.equal(await pending, '');
+      assert.equal(engine.pendingQuestion()?.id, 'email');
+      assert.equal(engine.taskStatus('registration'), 'active');
+      assert.equal(engine.isAwaitingResume(), false);
+      releaseMicrophone('dictation');
+    } finally {
+      setAmharicCaptureForTests({ record: null, transcribe: null });
+    }
   });
 
   it('keeps the pending email question when dictation takes the microphone', () => {

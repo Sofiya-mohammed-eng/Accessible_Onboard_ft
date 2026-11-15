@@ -182,7 +182,7 @@ describe('microphone ownership', () => {
     assert.equal(acquireMicrophone('dock'), false);
     const dock = readFileSync(join(sourceRoot, 'components/VoiceDock.tsx'), 'utf8');
     const dictation = readFileSync(join(sourceRoot, 'components/ApplicationAssistantView.tsx'), 'utf8');
-    assert.match(dock, /if \(!acquireMicrophone\('dock'\)\) return;/);
+    assert.match(dock, /nextVoiceDockAction\(/);
     assert.match(dictation, /owner: 'dictation'/);
     assert.match(dictation, /setAnswer\(key, transcript\)/);
     releaseMicrophone('dictation');

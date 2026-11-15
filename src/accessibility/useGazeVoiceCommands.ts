@@ -5,12 +5,18 @@ import {
   microphoneOwner,
   releaseMicrophone,
   subscribeMicrophone,
+  watchMicrophoneOwner,
 } from '../engines/microphoneOwner';
 import { beginPermissionPrompt } from '../engines/browserPermissions';
 import { describeInteractiveElement, GazeControlEngine } from './gazeControlEngine';
+import {
+  gazeMayAnnounceListening,
+  gazeRetryDelay,
+  gazeVoiceWaitingStatus,
+} from './gazeVoiceAvailability';
 import { matchGazeVoiceCommand, type GazeVoiceCommand } from './gazeVoiceCommands';
 
-export type GazeVoiceStatus = 'off' | 'starting' | 'listening' | 'error';
+export type GazeVoiceStatus = 'off' | 'starting' | 'listening' | 'waiting' | 'error';
 
 interface UseGazeVoiceCommandsOptions {
   enabled: boolean;
@@ -42,13 +48,26 @@ export function useGazeVoiceCommands({
     let restartAllowed = true;
     let restartTimer: number | null = null;
     let session: VoiceInputSession | null = null;
+    let listenToken = 0;
+    let ownRelease = false;
+
+    const reportWaiting = () => {
+      listenToken += 1;
+      const waiting = gazeVoiceWaitingStatus();
+      callbacksRef.current.onStatus(waiting.status, waiting.message);
+    };
 
     const scheduleRestart = () => {
-      if (cancelled || !restartAllowed || restartTimer !== null) return;
+      const delay = gazeRetryDelay({
+        cancelled,
+        restartAllowed,
+        retryPending: restartTimer !== null,
+      });
+      if (delay === null) return;
       restartTimer = window.setTimeout(() => {
         restartTimer = null;
         if (!cancelled && restartAllowed) void start();
-      }, 900);
+      }, delay);
     };
 
     const executeCommand = (command: GazeVoiceCommand) => {
@@ -118,7 +137,11 @@ export function useGazeVoiceCommands({
 
     const start = async () => {
       if (cancelled || session?.isCurrent()) return;
-      if (!acquireMicrophone('gaze')) return;
+      if (!acquireMicrophone('gaze')) {
+        reportWaiting();
+        return;
+      }
+      const token = listenToken;
       callbacksRef.current.onStatus(
         'starting',
         'Waiting for microphone permission and starting voice commands.'
@@ -136,7 +159,11 @@ export function useGazeVoiceCommands({
         owner: 'gaze',
         onStart: () => {
           settlePermission();
-          if (cancelled) return;
+          if (!gazeMayAnnounceListening({
+            callbackToken: token,
+            activeToken: listenToken,
+            owner: microphoneOwner(),
+          })) return;
           callbacksRef.current.onStatus(
             'listening',
             'Voice commands listening. Say click, select, scroll down, scroll up, calibrate, pause, or resume.'
@@ -144,12 +171,17 @@ export function useGazeVoiceCommands({
         },
         onTranscript: (transcript, isFinal) => {
           if (cancelled || !isFinal) return;
+          if (!gazeMayAnnounceListening({
+            callbackToken: token,
+            activeToken: listenToken,
+            owner: microphoneOwner(),
+          })) return;
           const command = matchGazeVoiceCommand(transcript);
           if (command) executeCommand(command);
         },
         onError: (message) => {
           settlePermission();
-          if (cancelled) return;
+          if (cancelled || token !== listenToken) return;
           if (
             message.includes('permission was denied') ||
             message.includes('not supported') ||
@@ -161,9 +193,14 @@ export function useGazeVoiceCommands({
         },
         onEnd: () => {
           settlePermission();
+          if (cancelled || token !== listenToken) return;
           session = null;
-          if (microphoneOwner() === 'gaze') releaseMicrophone('gaze');
-          if (cancelled || !restartAllowed) return;
+          if (microphoneOwner() === 'gaze') {
+            ownRelease = true;
+            releaseMicrophone('gaze');
+            ownRelease = false;
+          }
+          if (!restartAllowed) return;
           callbacksRef.current.onStatus('starting', 'Restarting voice commands.');
           scheduleRestart();
         },
@@ -192,11 +229,17 @@ export function useGazeVoiceCommands({
       if (cancelled || session?.isCurrent()) return;
       scheduleRestart();
     });
+    const unwatch = watchMicrophoneOwner(() => {
+      if (cancelled || ownRelease || microphoneOwner() === 'gaze') return;
+      if (session && !session.isCurrent()) session = null;
+      reportWaiting();
+    });
     void start();
 
     return () => {
       cancelled = true;
       unsubscribe();
+      unwatch();
       if (restartTimer !== null) {
         window.clearTimeout(restartTimer);
         restartTimer = null;

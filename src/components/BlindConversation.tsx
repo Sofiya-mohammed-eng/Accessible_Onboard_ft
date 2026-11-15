@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { listenOnce, speakAndWait, stopConversationRecognition, stopSpeakingAloud } from '../engines/accessibilityEngine';
 import { getLanguageOption, getLocalizedCopy } from '../engines/i18n';
+import { pageListenLanguage, startupRecognitionLanguages } from '../engines/recognitionLanguage';
 import { getPageCopy, unsupportedLanguageNotice } from '../engines/pageCopy';
 import { interpretAccount } from '../engines/accountIntent';
 import { emailLooksValid, normalizeSpokenEmail } from '../engines/spokenEmail';
@@ -269,10 +270,7 @@ export function BlindConversation({
         return transcript;
       };
       if (lang) return once(lang);
-      if (pageKey === 'landing' || pageKey === 'jobs' || pageKey === 'apply') {
-        return (await once('am-ET')) || (await once('en-US'));
-      }
-      return once(speechLang());
+      return once(pageListenLanguage(pageKey, currentLanguage()));
     };
 
     const engine = engineRef.current;
@@ -528,7 +526,8 @@ export function BlindConversation({
       if (languageOpen && startupStep !== 'control') {
         await say('Say English, or say Amharic. እንግሊዝኛ ወይም አማርኛ ይበሉ።');
         for (let attempt = 0; attempt < 4 && !cancelled; attempt += 1) {
-          const choice = (await hear('am-ET')) || (await hear('en-US'));
+          const [amharicChoice, englishChoice] = startupRecognitionLanguages();
+          const choice = (await hear(amharicChoice)) || (await hear(englishChoice));
           const next = includesAny(choice, AMHARIC) ? 'am' : includesAny(choice, ENGLISH) ? 'en' : null;
           if (!next) {
             await say(amharic() ? 'እንግሊዝኛ ወይም አማርኛ ይበሉ።' : 'Please say English or Amharic.');
@@ -563,7 +562,7 @@ export function BlindConversation({
         if (cancelled) return;
         await say('ከኢትዮጵያ እስከ ዓለም ሥራ ይፈልጉ። ለመጀመር ጀምር ይበሉ።', 'am-ET');
         for (let attempt = 0; attempt < 4 && !cancelled; attempt += 1) {
-          const command = (await hear('am-ET')) || (await hear('en-US'));
+          const command = await hear();
           if (wantsStart(command)) {
             onGetStarted();
             return;
@@ -842,8 +841,8 @@ export function BlindConversation({
       if (pageKey === 'jobs') {
         const accountPaused = engine.taskStatus('registration') === 'paused' || engine.taskStatus('sign-in') === 'paused';
         let leaving = false;
-        const hearJob = async (lang?: string) => {
-          const heard = await hear(lang);
+        const hearJob = async () => {
+          const heard = await hear();
           if (!heard || leaving) return '';
           if (!accountPaused) return heard;
           const routed = await routeUtterance(heard);
@@ -863,6 +862,38 @@ export function BlindConversation({
             : (amharic() ? 'ስራ ፈልግ ተከፍቷል።' : 'Find Jobs is open.'));
         }
         const jobButtons = () => [...root.querySelectorAll<HTMLButtonElement>('[data-voice-apply]')];
+        const openApplication = async (button?: HTMLButtonElement | null) => {
+          if (!button) return;
+          button.click();
+          await wait(300);
+          for (let step = 0; step < 6 && !cancelled && !leaving; step += 1) {
+            const box = root.querySelector<HTMLElement>('[data-career-apply]');
+            if (!box) return;
+            if (box.getAttribute('data-career-apply') === 'done') {
+              const saved = box.querySelector('h2')?.textContent?.replace(/\s+/g, ' ').trim() || '';
+              if (saved) await say(saved);
+              return;
+            }
+            const question = box.querySelector('h2')?.textContent?.replace(/\s+/g, ' ').trim() || '';
+            const help = box.querySelector('[data-career-help]')?.textContent?.replace(/\s+/g, ' ').trim() || '';
+            await say(`${question}. ${help}`);
+            const field = box.querySelector<HTMLInputElement | HTMLTextAreaElement>('input:not([type="checkbox"]), textarea');
+            if (field) {
+              const answer = await hearJob();
+              if (cancelled || leaving) return;
+              if (!answer) {
+                await say(amharic() ? 'አልሰማሁም። እንደገና ይናገሩ።' : 'I did not hear you. Please say your answer.');
+                step -= 1;
+                continue;
+              }
+              setFieldValue(field, answer);
+              await say(amharic() ? `ሰማሁ። ${answer}` : `I heard ${answer}.`);
+            }
+            const action = box.querySelector<HTMLButtonElement>('[data-voice="next"], [data-voice="submit"]');
+            action?.click();
+            await wait(300);
+          }
+        };
         if (jobButtons().length > 0) {
           const searchInput = root.querySelector<HTMLInputElement>('#opportunity-search');
           const totalJobs = jobButtons().length;
@@ -872,14 +903,15 @@ export function BlindConversation({
             : 'What job do you want? Say the kind of work.');
           let narrowed = false;
           for (let attempt = 0; attempt < 4 && !cancelled && !narrowed; attempt += 1) {
-            const request = await hearJob(amharic() ? 'am-ET' : undefined);
+            const request = await hearJob();
             if (cancelled || leaving) return;
             if (!request) {
               await say(amharic() ? 'አልሰማሁም። የሚፈልጉትን ሥራ ይናገሩ።' : 'I did not hear you. Say the job you want.');
               continue;
             }
             if (wantsApply(request)) {
-              jobButtons()[0]?.click();
+              await say(amharic() ? 'እሺ። ወደ ማመልከቻው እሄዳለሁ።' : 'Okay. I am opening the application.');
+              await openApplication(jobButtons()[0]);
               return;
             }
             const words = request.toLowerCase().split(/\s+/).map((word) => word.replace(/[።.!?]/g, '')).filter((word) => word.length > 2 && !ignore.includes(word));
@@ -922,7 +954,7 @@ export function BlindConversation({
             ? 'ለማመልከት አመልክት ይበሉ። ወይም የሥራውን ስም ይበሉ።'
             : 'Say apply. Or say the name of the job.');
           for (let attempt = 0; attempt < 4 && !cancelled; attempt += 1) {
-            const command = await hearJob(amharic() ? 'am-ET' : undefined);
+            const command = await hearJob();
             if (cancelled || leaving) return;
             if (!command) {
               await say(amharic() ? 'አልሰማሁም። አመልክት ይበሉ። ወይም የሥራውን ስም ይበሉ።' : 'I did not hear you. Say apply, or say the job name.');
@@ -935,12 +967,12 @@ export function BlindConversation({
             });
             if (named) {
               await say(amharic() ? 'እሺ። ወደ ማመልከቻው እሄዳለሁ። ቀጣዩ ደረጃ ማመልከቻው ነው።' : 'Okay. I am opening the application. The next step is the application.');
-              named.click();
+              await openApplication(named);
               return;
             }
             if (wantsApply(command) || isYes(command)) {
               await say(amharic() ? 'እሺ። ወደ ማመልከቻው እሄዳለሁ። ቀጣዩ ደረጃ ማመልከቻው ነው።' : 'Okay. I am opening the application. The next step is the application.');
-              (named || jobButtons()[0])?.click();
+              await openApplication(named || jobButtons()[0]);
               return;
             }
             await say(amharic() ? 'አመልክት ይበሉ። ወይም የሥራውን ስም ይበሉ።' : 'Say apply, or say the job name.');
@@ -963,7 +995,7 @@ export function BlindConversation({
           await say(amharic() ? `ሰማሁ። ${command}` : `I heard ${command}.`);
           if (wantsApply(command) || isYes(command)) {
             await say(amharic() ? 'እሺ። ወደ ማመልከቻው እሄዳለሁ።' : 'Okay. I am opening the application.');
-            root.querySelector<HTMLButtonElement>('[data-voice-apply]')?.click();
+            await openApplication(root.querySelector<HTMLButtonElement>('[data-voice-apply]'));
             return;
           }
           await say(amharic() ? 'ቀጣዩ ደረጃ ማመልከት ነው። አመልክት ይበሉ።' : 'The next step is to apply. Say apply.');

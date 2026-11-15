@@ -13,6 +13,7 @@ import {
   getPermissionPromptSnapshot,
   subscribePermissionPrompt,
 } from '../engines/browserPermissions';
+import { gazeStatusForScreenReader } from './gazeVoiceAvailability';
 import { useGazeVoiceCommands, type GazeVoiceStatus } from './useGazeVoiceCommands';
 import type {
   GazeCalibrationData,
@@ -39,6 +40,7 @@ const VOICE_STATUS_LABEL: Record<GazeVoiceStatus, string> = {
   off: 'Off',
   starting: 'Starting',
   listening: 'Listening',
+  waiting: 'Waiting',
   error: 'Needs attention',
 };
 
@@ -244,7 +246,8 @@ export function GazeControlManager({
   const handleVoiceStatus = useCallback((nextStatus: GazeVoiceStatus, message: string) => {
     setVoiceStatus(nextStatus);
     setVoiceMessage(message);
-    if (nextStatus === 'error') setLiveMessage(message);
+    const announcement = gazeStatusForScreenReader(nextStatus, message);
+    if (announcement) setLiveMessage(announcement);
   }, []);
 
   const handleVoicePause = useCallback(() => {

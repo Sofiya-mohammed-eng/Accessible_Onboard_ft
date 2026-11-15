@@ -96,6 +96,7 @@ const VOICE_STATUS_COPY: Record<GazeVoiceStatus, string> = {
   off: 'Voice commands are off.',
   starting: 'Waiting for microphone permission and starting voice commands.',
   listening: 'Listening for voice commands.',
+  waiting: 'Voice commands are waiting. The microphone is being used by another voice task.',
   error: 'Voice commands need attention.',
 };
 

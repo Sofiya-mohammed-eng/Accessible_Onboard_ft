@@ -9,6 +9,9 @@ export interface PageCopy {
   stopVoice: string;
   languageNotSupported: string;
   listening: string;
+  microphoneBusy: string;
+  voiceDockStopped: string;
+  nothingHeard: string;
   dashboardEyebrow: string;
   dashboardHeadline: string;
   dashboardLead: string;
@@ -127,6 +130,9 @@ const COPY: Record<PreferredLanguage, PageCopy> = {
     stopVoice: 'Stop voice',
     languageNotSupported: 'This language is not supported.',
     listening: 'Listening in your selected language.',
+    microphoneBusy: 'The microphone is being used by another voice task. Try again when it finishes.',
+    voiceDockStopped: 'Voice input stopped.',
+    nothingHeard: 'No speech was heard.',
     dashboardEyebrow: 'Accessible career pathway',
     dashboardHeadline: 'Find work that works for you.',
     dashboardLead: 'Explore jobs, understand workplace arrangements, and apply with accessible forms.',
@@ -243,6 +249,9 @@ const COPY: Record<PreferredLanguage, PageCopy> = {
     stopVoice: 'ድምፅ አቁም',
     languageNotSupported: 'ይህ ቋንቋ አይደገፍም።',
     listening: 'በመረጡት ቋንቋ በመስማት ላይ።',
+    microphoneBusy: 'ማይክሮፎኑ በሌላ የድምፅ ሥራ ላይ ነው። ሲያበቃ እንደገና ይሞክሩ።',
+    voiceDockStopped: 'የድምፅ ግብዓት ቆሟል።',
+    nothingHeard: 'ምንም ንግግር አልተሰማም።',
     dashboardEyebrow: 'ተደራሽ የሥራ መንገድ',
     dashboardHeadline: 'ለእርስዎ የሚስማማ ሥራ ያግኙ።',
     dashboardLead: 'ሥራዎችን ይመልከቱ፣ የሥራ ቦታ ዝግጅቶችን ይረዱ፣ እና በተደራሽ ቅጽ ያመልክቱ።',
