@@ -286,7 +286,7 @@ export const CareerGateway: React.FC<CareerGatewayProps> = ({
                 value={query}
                 onChange={(event) => setQuery(event.target.value)}
                 placeholder="Search by job title, skill, or organization"
-                className="min-w-0 flex-1 bg-transparent px-3 py-2.5 text-sm text-[#0e2a4a] outline-none placeholder:text-[#7f97b0] high-contrast:text-white"
+                className="min-w-0 flex-1 bg-transparent px-3 py-2.5 text-sm text-[#0e2a4a] placeholder:text-[#7f97b0] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#f5a623] high-contrast:text-white"
               />
               <button
                 type="submit"
@@ -649,7 +649,7 @@ function SpeakField({
   };
 
   const fieldClass =
-    'min-w-0 flex-1 rounded-xl border border-[#b7c9dc] bg-white px-3 py-3 text-[#0e2a4a] outline-none placeholder:text-[#8aa0b5] focus:border-[#1a73e8] high-contrast:border-white high-contrast:bg-black high-contrast:text-white';
+    'min-w-0 flex-1 rounded-xl border border-[#b7c9dc] bg-white px-3 py-3 text-[#0e2a4a] placeholder:text-[#8aa0b5] focus:border-[#1a73e8] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#f5a623] high-contrast:border-white high-contrast:bg-black high-contrast:text-white';
 
   return (
     <div>
@@ -810,7 +810,7 @@ function ApplyDialog({
 
         {done ? (
           <div className="mt-5">
-            <h2 id={titleId} ref={headingRef} tabIndex={-1} className="font-display text-4xl font-bold text-[#0e2a4a] outline-none high-contrast:text-white">
+            <h2 id={titleId} ref={headingRef} tabIndex={-1} className="font-display text-4xl font-bold text-[#0e2a4a] high-contrast:text-white">
               Your application is saved.
             </h2>
             <p data-career-help className="mt-3 text-[#4d6786] high-contrast:text-slate-200">
@@ -839,7 +839,7 @@ function ApplyDialog({
               id={titleId}
               ref={headingRef}
               tabIndex={-1}
-              className="mt-4 font-display text-4xl font-bold tracking-[-0.03em] text-[#0e2a4a] outline-none high-contrast:text-white"
+              className="mt-4 font-display text-4xl font-bold tracking-[-0.03em] text-[#0e2a4a] high-contrast:text-white"
             >
               {current.title}
             </h2>

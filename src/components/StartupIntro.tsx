@@ -42,6 +42,7 @@ export function StartupIntro({ onFinished }: { onFinished: () => void }) {
         role="dialog"
         aria-modal="true"
         aria-labelledby="startup-welcome-title"
+        aria-label="Welcome"
         className="relative w-[min(92vw,460px)] overflow-hidden rounded-2xl bg-white shadow-[0_30px_80px_rgba(0,0,0,0.45)]"
         style={{ animation: 'allways-window-in 0.55s ease both' }}
       >

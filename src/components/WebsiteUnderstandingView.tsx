@@ -33,7 +33,7 @@ const DEFAULT_HTML_SNIPPET = `<nav aria-label="Application steps">
   <h1>Submit Proposal</h1>
   <label for="rate">Hourly Rate ($ USD)</label>
   <input id="rate" type="number" value="250" required />
-  <img src="banner.png" />
+  <img src="banner.png" alt="" aria-hidden="true" />
   <button type="submit">Review Application</button>
 </main>`;
 

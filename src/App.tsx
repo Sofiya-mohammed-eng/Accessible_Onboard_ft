@@ -373,7 +373,7 @@ export default function App() {
           </div>
         )}
 
-      <main id="main-content" ref={mainRef} tabIndex={-1} className="flex-1 scroll-mt-20 focus:outline-none">
+      <main id="main-content" ref={mainRef} tabIndex={-1} className="flex-1 scroll-mt-20">
         {currentView === 'onboarding' && (
           <OnboardingWizard
             preferences={preferences}

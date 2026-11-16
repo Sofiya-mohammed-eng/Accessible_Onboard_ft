@@ -186,6 +186,7 @@ export function GazeSettingsPanel({
     <section
       role="dialog"
       aria-modal="false"
+      aria-label="Gaze and head control settings"
       aria-labelledby="gaze-settings-title"
       className="fixed bottom-20 right-4 z-[85] flex max-h-[calc(100vh-6rem)] w-[min(94vw,25rem)] flex-col overflow-hidden rounded-xl border-2 border-[#001F3F] bg-white shadow-2xl high-contrast:border-yellow-300 high-contrast:bg-black"
     >

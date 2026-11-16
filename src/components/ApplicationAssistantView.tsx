@@ -269,11 +269,11 @@ export const ApplicationAssistantView: React.FC<ApplicationAssistantViewProps> =
                 <p className="text-xs font-bold uppercase tracking-[0.16em] text-[#d6ecff]">
                   {page.applicationComplete}
                 </p>
-                <h1
-                  ref={headingRef}
-                  tabIndex={-1}
-                  className="mt-2 font-display text-4xl font-bold leading-tight text-white focus:outline-none focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-[#f5a623]"
-                >
+            <h1
+              ref={headingRef}
+              tabIndex={-1}
+              className="font-display text-4xl font-bold text-[#0e2a4a] high-contrast:text-white"
+            >
                   {page.onItsWay}
                 </h1>
                 <p className="mt-3 max-w-xl text-base text-[#e7f3ff]">
@@ -434,7 +434,7 @@ export const ApplicationAssistantView: React.FC<ApplicationAssistantViewProps> =
             <h1
               ref={headingRef}
               tabIndex={-1}
-              className="mt-2 font-display text-4xl font-bold text-[#0e2a4a] focus:outline-none focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-[#f5a623] high-contrast:text-white"
+              className="mt-2 font-display text-4xl font-bold text-[#0e2a4a] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-[#f5a623] high-contrast:text-white"
             >
               {questionTitles[question.key]}
             </h1>

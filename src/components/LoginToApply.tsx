@@ -138,7 +138,7 @@ export const LoginToApply: React.FC<LoginToApplyProps> = ({
           <h1
             ref={headingRef}
             tabIndex={-1}
-            className="mt-3 max-w-md font-display text-4xl font-bold leading-tight text-white focus:outline-none focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-[#f5a623] sm:text-5xl"
+            className="mt-3 max-w-md font-display text-4xl font-bold leading-tight text-white focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-[#f5a623] sm:text-5xl"
           >
             {purpose === 'account' ? page.welcomeBack : page.loginTitle}
           </h1>
@@ -223,6 +223,7 @@ export const LoginToApply: React.FC<LoginToApplyProps> = ({
 
           {error && (
             <p
+              id="account-error"
               role="alert"
               data-voice-fix={errorField}
               className="mt-4 rounded-xl bg-[#fdecec] px-4 py-3 text-sm font-semibold text-[#8a1f17]"
@@ -240,6 +241,7 @@ export const LoginToApply: React.FC<LoginToApplyProps> = ({
                   type="text"
                   autoComplete="name"
                   aria-invalid={errorField === 'name'}
+                  aria-describedby={errorField === 'name' ? 'account-error' : undefined}
                   value={name}
                   onChange={(event) => {
                     setName(event.target.value);
@@ -256,20 +258,21 @@ export const LoginToApply: React.FC<LoginToApplyProps> = ({
             {page.emailLabel}
             <span className="relative mt-2 block">
               <Mail className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-[#6d7f74]" aria-hidden="true" />
-              <input
-                type="email"
-                autoComplete="email"
-                aria-invalid={errorField === 'email'}
-                value={email}
-                onChange={(event) => {
-                  setEmail(event.target.value);
-                  setError('');
+                <input
+                  type="email"
+                  autoComplete="email"
+                  aria-invalid={errorField === 'email'}
+                  aria-describedby={errorField === 'email' ? 'account-error' : undefined}
+                  value={email}
+                  onChange={(event) => {
+                    setEmail(event.target.value);
+                    setError('');
                     setErrorField('');
-                }}
-                className="w-full rounded-xl border border-[#c5daf2] bg-white py-3 pl-10 pr-3 text-base text-[#0e2a4a] high-contrast:border-white high-contrast:bg-black high-contrast:text-white"
-              />
-            </span>
-          </label>
+                  }}
+                  className="w-full rounded-xl border border-[#c5daf2] bg-white py-3 pl-10 pr-3 text-base text-[#0e2a4a] high-contrast:border-white high-contrast:bg-black high-contrast:text-white"
+                />
+              </span>
+            </label>
 
           <label className="mt-4 block text-sm font-semibold text-[#0e2a4a] high-contrast:text-white">
             {page.passwordLabel}
@@ -279,11 +282,12 @@ export const LoginToApply: React.FC<LoginToApplyProps> = ({
                 type={showPassword ? 'text' : 'password'}
                 autoComplete="current-password"
                 aria-invalid={errorField === 'password'}
+                aria-describedby={errorField === 'password' ? 'account-error' : undefined}
                 value={password}
                 onChange={(event) => {
                   setPassword(event.target.value);
                   setError('');
-                    setErrorField('');
+                  setErrorField('');
                 }}
                 className="w-full rounded-xl border border-[#c5daf2] bg-white py-3 pl-10 pr-12 text-base text-[#0e2a4a] high-contrast:border-white high-contrast:bg-black high-contrast:text-white"
               />
@@ -308,6 +312,7 @@ export const LoginToApply: React.FC<LoginToApplyProps> = ({
                   type={showPassword ? 'text' : 'password'}
                   autoComplete="new-password"
                   aria-invalid={errorField === 'confirm'}
+                  aria-describedby={errorField === 'confirm' ? 'account-error' : undefined}
                   value={confirmPassword}
                   onChange={(event) => {
                     setConfirmPassword(event.target.value);

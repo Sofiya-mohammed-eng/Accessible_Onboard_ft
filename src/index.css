@@ -321,24 +321,25 @@ html.high-contrast [class*="bg-[#1a73e8]"] {
   box-shadow: none;
 }
 
-/* Skip link styling */
-.skip-link {
-  position: fixed;
-  top: -100px;
-  left: 1rem;
-  z-index: 100;
-  background-color: #001f3f;
-  color: #ffffff;
-  padding: 0.75rem 1.25rem;
-  border-radius: 0.5rem;
-  font-weight: 600;
-  border: 2px solid #007bff;
-  transition: top 0.15s ease;
-}
+  /* Skip link styling */
+  .skip-link {
+    position: fixed;
+    top: -100px;
+    left: 1rem;
+    z-index: 100;
+    background-color: #001f3f;
+    color: #ffffff;
+    padding: 0.75rem 1.25rem;
+    border-radius: 0.5rem;
+    font-weight: 600;
+    border: 2px solid #007bff;
+    transition: top 0.15s ease;
+  }
 
-.skip-link:focus {
-  top: 1rem;
-}
+  .skip-link:focus,
+  .skip-link:focus-visible {
+    top: 1rem;
+  }
 
 html.theme-dark:not(.high-contrast) body {
   background:

@@ -342,7 +342,7 @@ export function GazeCalibrationOverlay({
       aria-labelledby="gaze-calibration-title"
       aria-describedby="gaze-calibration-description"
       tabIndex={-1}
-      className="fixed inset-0 z-[95] select-none bg-slate-950/35 focus:outline-none"
+      className="fixed inset-0 z-[95] select-none bg-slate-950/35 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#f5a623]"
     >
       <div className="pointer-events-none absolute left-1/2 top-4 z-10 w-[min(94vw,44rem)] -translate-x-1/2">
         <div className="pointer-events-auto rounded-xl border-2 border-[#001F3F] bg-white p-4 text-center shadow-2xl high-contrast:border-yellow-300 high-contrast:bg-black">
