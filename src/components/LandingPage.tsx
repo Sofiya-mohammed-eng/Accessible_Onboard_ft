@@ -117,6 +117,7 @@ export const LandingPage: React.FC<LandingPageProps> = ({
   const [problemPlaying, setProblemPlaying] = React.useState(false);
   const [problemPaused, setProblemPaused] = React.useState(false);
   const [problemAutoPaused, setProblemAutoPaused] = React.useState(false);
+  const [carouselMessage, setCarouselMessage] = React.useState('');
 
   React.useEffect(() => {
     const stage = stageRef.current;
@@ -138,7 +139,26 @@ export const LandingPage: React.FC<LandingPageProps> = ({
 
   const showProblem = (index: number) => {
     const count = story.problems.length;
-    setProblemIndex((index + count) % count);
+    const next = (index + count) % count;
+    setProblemIndex(next);
+    setCarouselMessage(`Slide ${next + 1} of ${count}: ${story.problems[next].title}`);
+  };
+
+  const handleCarouselKeyDown = (event: React.KeyboardEvent<HTMLDivElement>) => {
+    const count = story.problems.length;
+    if (event.key === 'ArrowRight' || event.key === 'ArrowDown') {
+      event.preventDefault();
+      showProblem(problemIndex + 1);
+    } else if (event.key === 'ArrowLeft' || event.key === 'ArrowUp') {
+      event.preventDefault();
+      showProblem(problemIndex - 1);
+    } else if (event.key === 'Home') {
+      event.preventDefault();
+      showProblem(0);
+    } else if (event.key === 'End') {
+      event.preventDefault();
+      showProblem(count - 1);
+    }
   };
 
   React.useEffect(() => {
@@ -318,6 +338,8 @@ export const LandingPage: React.FC<LandingPageProps> = ({
             role="region"
             aria-roledescription="carousel"
             aria-label={story.problemTitle}
+            tabIndex={0}
+            onKeyDown={handleCarouselKeyDown}
             className="mt-8 overflow-hidden"
             onMouseEnter={() => setProblemPaused(true)}
             onMouseLeave={() => setProblemPaused(false)}
@@ -386,6 +408,9 @@ export const LandingPage: React.FC<LandingPageProps> = ({
               {problemAutoPaused ? 'Play highlights' : 'Pause highlights'}
             </button>
           </div>
+          <p className="sr-only" aria-live="polite" aria-atomic="true">
+            {carouselMessage}
+          </p>
         </div>
       </section>
 

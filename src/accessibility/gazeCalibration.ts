@@ -283,17 +283,24 @@ export function hasSavedGazeCalibration(): boolean {
   return loadGazeCalibration() !== null;
 }
 
-export function isGazeAutoStartRequested(): boolean {
-  if (typeof window === 'undefined') return false;
+const GAZE_AUTOSTART_DISMISSED_KEY = 'accessbridge_gaze_autostart_dismissed_v1';
+
+export function dismissGazeAutoStart(): void {
+  if (typeof window === 'undefined') return;
   try {
-    return new URLSearchParams(window.location.search).get('autostart') === 'gaze';
+    window.localStorage.setItem(GAZE_AUTOSTART_DISMISSED_KEY, '1');
   } catch {
-    return false;
+    // Ignore.
   }
 }
 
-export function shouldAutoStartGaze(): boolean {
-  return isGazeAutoStartRequested() || hasSavedGazeCalibration();
+export function clearGazeAutoStartDismissal(): void {
+  if (typeof window === 'undefined') return;
+  try {
+    window.localStorage.removeItem(GAZE_AUTOSTART_DISMISSED_KEY);
+  } catch {
+    // Ignore.
+  }
 }
 
 export function saveGazeCalibration(data: GazeCalibrationData): void {

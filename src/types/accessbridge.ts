@@ -19,6 +19,14 @@ export type PreferredLanguage = 'en' | 'am';
 
 export type ColorMode = 'light' | 'dark';
 
+/**
+ * How the invisible background facilitator supports the user.
+ * - voice: speaks and listens (blind / low-vision, non-speaking via other input)
+ * - visual: shows large visible prompts and alerts without any speech (Deaf / HoH)
+ * - standard: no assistant; the user drives the platform themselves
+ */
+export type GuidanceMode = 'voice' | 'visual' | 'standard';
+
 export type NavigationStyle =
   | 'keyboard_screen_reader'
   | 'voice_commands'
@@ -67,6 +75,8 @@ export interface AccessibilityPreferences {
   colorMode: ColorMode;
   reducedMotion: boolean;
   speechRate: number;
+  spokenGuidanceEnabled: boolean;
+  guidanceMode: GuidanceMode;
   onboardingCompleted: boolean;
 
   gazeControlEnabled: boolean;

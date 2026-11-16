@@ -10,10 +10,11 @@ const KEYS = {
   DRAFT: 'accessbridge_application_draft_v1',
   INTENDED: 'accessbridge_intended_values_v1',
   ACTIVITIES: 'accessbridge_activities_v1',
+  STEPPER: 'accessbridge_application_stepper_v1',
 } as const;
 
 export const DEFAULT_PREFERENCES: AccessibilityPreferences = {
-  language: 'en',
+  language: 'am',
   languageSelected: false,
   screenReaderCompatibility: true,
   highContrast: false,
@@ -37,6 +38,8 @@ export const DEFAULT_PREFERENCES: AccessibilityPreferences = {
   colorMode: 'light',
   reducedMotion: false,
   speechRate: 1.0,
+  spokenGuidanceEnabled: true,
+  guidanceMode: 'voice',
   onboardingCompleted: false,
   gazeControlEnabled: false,
   gazeTrackingMode: 'hybrid',
@@ -92,6 +95,18 @@ export const DEFAULT_APPLICATION_DRAFT: ApplicationDraft = {
   lastSavedAt: null,
 };
 
+export interface ApplicationStepperState {
+  answers: Record<string, string>;
+  step: number;
+  agreed: boolean;
+}
+
+export const DEFAULT_APPLICATION_STEPPER: ApplicationStepperState = {
+  answers: {},
+  step: 1,
+  agreed: true,
+};
+
 function safeRead<T>(key: string, fallback: T): T {
   try {
     const raw = window.localStorage.getItem(key);
@@ -115,10 +130,15 @@ function safeReadArray<T>(key: string, fallback: T[]): T[] {
 
 export function loadPreferences(): AccessibilityPreferences {
   const loaded = safeRead(KEYS.PREFERENCES, DEFAULT_PREFERENCES);
+  const guidanceMode =
+    loaded.guidanceMode === 'visual' || loaded.guidanceMode === 'standard' || loaded.guidanceMode === 'voice'
+      ? loaded.guidanceMode
+      : DEFAULT_PREFERENCES.guidanceMode;
   return {
     ...loaded,
     language: loaded.language === 'am' ? 'am' : 'en',
     colorMode: loaded.colorMode === 'dark' ? 'dark' : 'light',
+    guidanceMode,
   };
 }
 
@@ -139,6 +159,30 @@ export function saveApplicationDraft(draft: ApplicationDraft): void {
     window.localStorage.setItem(KEYS.DRAFT, JSON.stringify(draft));
   } catch {
     // Ignore storage quota errors gracefully
+  }
+}
+
+export function loadApplicationStepper(): ApplicationStepperState {
+  const loaded = safeRead(KEYS.STEPPER, DEFAULT_APPLICATION_STEPPER);
+  const step = typeof loaded.step === 'number' ? Math.min(7, Math.max(1, Math.round(loaded.step))) : 1;
+  const answers =
+    loaded.answers && typeof loaded.answers === 'object' ? (loaded.answers as Record<string, string>) : {};
+  return { answers, step, agreed: loaded.agreed !== false };
+}
+
+export function saveApplicationStepper(state: ApplicationStepperState): void {
+  try {
+    window.localStorage.setItem(KEYS.STEPPER, JSON.stringify(state));
+  } catch {
+    // Ignore storage quota errors gracefully
+  }
+}
+
+export function clearApplicationStepper(): void {
+  try {
+    window.localStorage.removeItem(KEYS.STEPPER);
+  } catch {
+    // Ignore
   }
 }
 

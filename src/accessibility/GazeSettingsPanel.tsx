@@ -1,4 +1,5 @@
 import { useEffect, useRef } from 'react';
+import type { KeyboardEvent as ReactKeyboardEvent } from 'react';
 import {
   ArrowUpDown,
   CircleCheck,
@@ -185,8 +186,37 @@ export function GazeSettingsPanel({
 
   if (!isOpen) return null;
 
+  const handleRadioArrow = (
+    event: ReactKeyboardEvent<HTMLButtonElement>,
+    ids: string[],
+    currentId: string,
+    onSelect: (id: string) => void,
+    dataPrefix: string,
+  ) => {
+    const current = ids.indexOf(currentId);
+    let next = current;
+    if (event.key === 'ArrowRight' || event.key === 'ArrowDown') {
+      next = (current + 1) % ids.length;
+    } else if (event.key === 'ArrowLeft' || event.key === 'ArrowUp') {
+      next = (current - 1 + ids.length) % ids.length;
+    } else if (event.key === 'Home') {
+      next = 0;
+    } else if (event.key === 'End') {
+      next = ids.length - 1;
+    } else {
+      return;
+    }
+    event.preventDefault();
+    const nextId = ids[next];
+    onSelect(nextId);
+    document
+      .querySelector<HTMLButtonElement>(`[data-gaze-radio="${dataPrefix}-${nextId}"]`)
+      ?.focus();
+  };
+
   return (
     <section
+      id="gaze-settings-panel"
       role="dialog"
       aria-modal="false"
       aria-labelledby="gaze-settings-title"
@@ -299,6 +329,17 @@ export function GazeSettingsPanel({
                   type="button"
                   role="radio"
                   aria-checked={selected}
+                  tabIndex={selected ? 0 : -1}
+                  data-gaze-radio={`mode-${option.id}`}
+                  onKeyDown={(event) =>
+                    handleRadioArrow(
+                      event,
+                      MODE_OPTIONS.map((option) => option.id),
+                      preferences.gazeTrackingMode,
+                      (id) => onUpdatePreferences({ gazeTrackingMode: id as GazeTrackingMode }),
+                      'mode',
+                    )
+                  }
                   onClick={() => onUpdatePreferences({ gazeTrackingMode: option.id })}
                   className={`rounded-lg border-2 px-2 py-2.5 text-center text-xs font-bold transition-colors ${
                     selected
@@ -335,6 +376,17 @@ export function GazeSettingsPanel({
                   type="button"
                   role="radio"
                   aria-checked={selected}
+                  tabIndex={selected ? 0 : -1}
+                  data-gaze-radio={`activation-${option.id}`}
+                  onKeyDown={(event) =>
+                    handleRadioArrow(
+                      event,
+                      ACTIVATION_OPTIONS.map((option) => option.id),
+                      preferences.gazeActivationMode,
+                      (id) => onUpdatePreferences({ gazeActivationMode: id as GazeActivationMode }),
+                      'activation',
+                    )
+                  }
                   onClick={() => onUpdatePreferences({ gazeActivationMode: option.id })}
                   className={`rounded-lg border-2 px-2 py-2.5 text-center text-xs font-bold transition-colors ${
                     selected
@@ -549,6 +601,10 @@ export function GazeSettingsPanel({
 
           <div className="mt-2 grid grid-cols-2 gap-x-2 gap-y-1 text-[11px] text-slate-600 high-contrast:text-slate-300">
             <p>
+              <kbd className="font-mono text-[10px]">&quot;activate&quot;</kbd> /{' '}
+              <kbd className="font-mono text-[10px]">&quot;gaze on&quot;</kbd>
+            </p>
+            <p>
               <kbd className="font-mono text-[10px]">&quot;click&quot;</kbd> /{' '}
               <kbd className="font-mono text-[10px]">&quot;select&quot;</kbd>
             </p>
@@ -565,8 +621,9 @@ export function GazeSettingsPanel({
             </p>
           </div>
           <p className="mt-2 text-[11px] leading-relaxed text-slate-500 high-contrast:text-slate-400">
-            Chrome or Edge and microphone permission are required. Say &quot;resume&quot; to restart
-            gaze control when it is paused.
+            Chrome or Edge and microphone permission are required. Say &quot;activate&quot; to start
+            gaze control and calibration without clicking, or &quot;resume&quot; to restart it when
+            paused.
           </p>
         </div>
 

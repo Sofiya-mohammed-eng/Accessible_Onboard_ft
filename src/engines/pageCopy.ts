@@ -115,6 +115,25 @@ export interface PageCopy {
   applyNow: string;
   homeKicker: string;
   homeBody: string;
+  skipToContent: string;
+  captionAlert: string;
+  dismiss: string;
+  stepOf: string;
+  at: string;
+  defaultJobTitle: string;
+  defaultEmployer: string;
+  submittedStatus: string;
+  dismissCaption: string;
+  footerLead: string;
+  footerNavLabel: string;
+  navHome: string;
+  navFindJobs: string;
+  navApply: string;
+  navSignIn: string;
+  prefsSaved: string;
+  srDetected: string;
+  srGuidancePaused: string;
+  turnVoiceOn: string;
 }
 
 const COPY: Record<PreferredLanguage, PageCopy> = {
@@ -233,6 +252,26 @@ const COPY: Record<PreferredLanguage, PageCopy> = {
     applyNow: 'Apply',
     homeKicker: 'One platform. Different abilities. Equal opportunities.',
     homeBody: 'Say get started to choose your language, then sign in.',
+    skipToContent: 'Skip to main content',
+    captionAlert: 'Caption / Alert:',
+    dismiss: 'Dismiss',
+    stepOf: 'Step {step} of {total}',
+    at: 'at',
+    defaultJobTitle: 'Customer Support Associate',
+    defaultEmployer: 'Selam Digital Services',
+    submittedStatus: 'Application submitted. Reference OP-JOB-7352.',
+    dismissCaption: 'Dismiss live caption',
+    footerLead: 'Choose your language, sign in, and apply for work in a calm conversation.',
+    footerNavLabel: 'Footer',
+    navHome: 'Home',
+    navFindJobs: 'Find Jobs',
+    navApply: 'Apply',
+    navSignIn: 'Sign in',
+    prefsSaved: 'Accessibility preferences saved. Opening your dashboard.',
+    srDetected: 'Screen reader detected',
+    srGuidancePaused:
+      'Automatic voice guidance is paused so it will not talk over your screen reader. The page is fully labeled for your reader.',
+    turnVoiceOn: 'Turn voice guidance on',
   },
   am: {
     continueToApply: 'ወደ ማመልከቻ ቀጥል',
@@ -349,6 +388,26 @@ const COPY: Record<PreferredLanguage, PageCopy> = {
     applyNow: 'አመልክት',
     homeKicker: 'አንድ መድረክ። የተለያዩ ችሎታዎች። እኩል እድሎች።',
     homeBody: 'ቋንቋ ለመምረጥ ጀምር ይበሉ። ከዚያ ይግቡ።',
+    skipToContent: 'ወደ ዋና ይዘት ዝለል',
+    captionAlert: 'ጽሑፍ / ማስጠንቀቂያ፦',
+    dismiss: 'አሰናብት',
+    stepOf: 'ደረጃ {step} ከ {total}',
+    at: 'በ',
+    defaultJobTitle: 'የደንበኛ ድጋፍ ሠራተኛ',
+    defaultEmployer: 'ሰላም ዲጂታል አገልግሎቶች',
+    submittedStatus: 'ማመልከቻው ተልኳል። ማጣቀሻ OP-JOB-7352።',
+    dismissCaption: 'መግለጫውን ዝጋ',
+    footerLead: 'ቋንቋዎን ይምረጡ፣ ይግቡ፣ እና ሥራዎን በተረጋጋ ውይይት ያመልክቱ።',
+    footerNavLabel: 'የግርጌ አገናኞች',
+    navHome: 'መነሻ',
+    navFindJobs: 'ስራ ፈልግ',
+    navApply: 'ያመልክቱ',
+    navSignIn: 'ይግቡ',
+    prefsSaved: 'የተደራሽነት ምርጫዎች ተቀምጠዋል። ዳሽቦርድዎን በመክፈት ላይ።',
+    srDetected: 'የስክሪን አንባቢ ተገኝቷል',
+    srGuidancePaused:
+      'አውቶማቲክ የድምፅ መመሪያ ከስክሪን አንባቢዎ ጋር እንዳይጋጭ ተጠፍቷል። ገጹ ለአንባቢዎ ሙሉ በሙሉ ተዘጋጅቷል።',
+    turnVoiceOn: 'የድምፅ መመሪያ አብራ',
   },
 };
 

@@ -124,6 +124,53 @@ function stopCurrentAudio() {
   audio.src = '';
 }
 
+function cancelSpeechOutput(): void {
+  stopCurrentAudio();
+  if (typeof window !== 'undefined' && 'speechSynthesis' in window) {
+    try {
+      window.speechSynthesis.cancel();
+    } catch {
+      // Ignore
+    }
+  }
+}
+
+function stopActiveRecognition(): void {
+  const recognition = activeRecognition;
+  if (!recognition) return;
+  activeRecognition = null;
+  suppressRecognitionEnd = true;
+  try {
+    recognition.stop();
+  } catch {
+    // The recognizer may already be stopped.
+  }
+}
+
+function stopActiveRecording(): void {
+  const stop = stopRecording;
+  if (!stop) return;
+  stopRecording = null;
+  captureGeneration += 1;
+  try {
+    stop();
+  } catch {
+    // The recorder may already be stopped.
+  }
+}
+
+/**
+ * Global voice-session lock. Every new speech output, dictation, or listening
+ * loop funnels through here first so that a single audio session owns the
+ * microphone and speakers at any given moment. This prevents speech synthesis,
+ * browser recognition, and PCM recording from overlapping or racing each other.
+ */
+function acquireVoiceSession(): void {
+  stopActiveRecording();
+  stopActiveRecognition();
+  cancelSpeechOutput();
+}
+
 function playAudioUrl(url: string, rate: number, token: number): Promise<boolean> {
   return new Promise((resolve) => {
     if (token !== speechToken) {
@@ -267,15 +314,18 @@ export function speakAloud(
   if (typeof window !== 'undefined' && 'speechSynthesis' in window) {
     try {
       window.speechSynthesis.getVoices();
-      if (window.speechSynthesis.speaking || window.speechSynthesis.pending) {
-        window.speechSynthesis.cancel();
-      }
+    } catch {
+      // Ignore
+    }
+  }
+  acquireVoiceSession();
+  if (typeof window !== 'undefined' && 'speechSynthesis' in window) {
+    try {
       window.speechSynthesis.resume();
     } catch {
       // Ignore
     }
   }
-  stopCurrentAudio();
   options?.onStart?.();
   const lang = options?.lang;
   const rate = options?.rate ?? 1;
@@ -283,12 +333,6 @@ export function speakAloud(
     if (token === speechToken) options?.onEnd?.();
   };
   const read = async () => {
-    try {
-      suppressRecognitionEnd = true;
-      activeRecognition?.stop();
-    } catch {
-      suppressRecognitionEnd = false;
-    }
     const amharicVoice = (lang || '').toLowerCase().startsWith('am');
     const played = await speakWithAudio(text, lang || 'en-US', rate, token);
     if (token !== speechToken) return;
@@ -348,21 +392,24 @@ export function speakAndWait(
   return run;
 }
 
-export function stopSpeakingAloud(): void {
+/**
+ * Single global panic switch. Stops all speech output, cancels any pending
+ * utterance chain, and tears down any active recognition or PCM recording so
+ * exactly one voice session can ever own the microphone and speakers. Exposed
+ * for the always-available "Stop / አቁም" control and the Escape shortcut.
+ */
+export function stopAllSpeechAndListening(): void {
   speechToken += 1;
-  captureGeneration += 1;
-  stopRecording?.();
   activeSpeech = '';
-  stopCurrentAudio();
-  if (typeof window !== 'undefined' && 'speechSynthesis' in window) {
-    try {
-      window.speechSynthesis.cancel();
-    } catch {
-      // Ignore
-    }
-  }
+  stopActiveRecording();
+  stopActiveRecognition();
+  cancelSpeechOutput();
   speechWaiters.forEach((finish) => finish());
   speechWaiters.clear();
+}
+
+export function stopSpeakingAloud(): void {
+  stopAllSpeechAndListening();
 }
 
 function downsampleTo16k(chunks: Float32Array[], inputRate: number): ArrayBuffer {
@@ -474,12 +521,8 @@ async function transcribeAmharic(audio: ArrayBuffer): Promise<string> {
 }
 
 async function listenAmharic(timeoutMs: number): Promise<string> {
+  acquireVoiceSession();
   const generation = captureGeneration;
-  try {
-    activeRecognition?.stop();
-  } catch {
-    // The browser recognizer does not understand Amharic, so it is stopped first.
-  }
   await waitForQuiet(450);
   for (let attempt = 0; attempt < 2; attempt += 1) {
     if (generation !== captureGeneration) return '';
@@ -590,7 +633,7 @@ export function startVoiceDictation(callbacks: {
   }
 
   try {
-    activeRecognition?.stop();
+    acquireVoiceSession();
     const recognition = new Ctor();
     activeRecognition = recognition;
     recognition.continuous = false;
@@ -635,6 +678,7 @@ export function startVoiceDictation(callbacks: {
     recognition.start();
     return {
       start: () => {
+        if (activeRecognition !== recognition) acquireVoiceSession();
         activeRecognition = recognition;
         try {
           recognition.start();

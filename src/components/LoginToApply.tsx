@@ -3,6 +3,7 @@ import { ArrowLeft, ArrowRight, Eye, EyeOff, Lock, Mail, UserRound } from 'lucid
 import { getPageCopy } from '../engines/pageCopy';
 import { emailLooksValid, normalizeSpokenEmail } from '../engines/spokenEmail';
 import { PreferredLanguage } from '../types/accessbridge';
+import { VoiceInputButton } from './VoiceInputButton';
 
 interface LoginToApplyProps {
   language: PreferredLanguage;
@@ -187,11 +188,17 @@ export const LoginToApply: React.FC<LoginToApplyProps> = ({
           )}
 
           {mode === 'register' && (
-            <label className="mt-6 block text-sm font-semibold text-[#0e2a4a] high-contrast:text-white">
-              {page.fullName}
+            <>
+              <label
+                htmlFor="login-name"
+                className="mt-6 block text-sm font-semibold text-[#0e2a4a] high-contrast:text-white"
+              >
+                {page.fullName}
+              </label>
               <span className="relative mt-2 block">
                 <UserRound className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-[#6d7f74]" aria-hidden="true" />
                 <input
+                  id="login-name"
                   type="text"
                   required
                   aria-required="true"
@@ -207,68 +214,112 @@ export const LoginToApply: React.FC<LoginToApplyProps> = ({
                   className="w-full rounded-xl border border-[#c5daf2] bg-white py-3 pl-10 pr-3 text-base text-[#0e2a4a] high-contrast:border-white high-contrast:bg-black high-contrast:text-white"
                 />
               </span>
-            </label>
+              <div className="mt-2 flex justify-end">
+                <VoiceInputButton
+                  language={language}
+                  onTranscript={(transcript) => {
+                    setName(transcript);
+                    setError('');
+                    setErrorField('');
+                  }}
+                />
+              </div>
+            </>
           )}
 
-          <label className="mt-6 block text-sm font-semibold text-[#0e2a4a] high-contrast:text-white">
+          <label
+            htmlFor="login-email"
+            className="mt-6 block text-sm font-semibold text-[#0e2a4a] high-contrast:text-white"
+          >
             {page.emailLabel}
-            <span className="relative mt-2 block">
-              <Mail className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-[#6d7f74]" aria-hidden="true" />
-              <input
-                type="email"
-                required
-                aria-required="true"
-                autoComplete="email"
-                aria-invalid={errorField === 'email'}
-                aria-describedby={errorField === 'email' ? 'login-error' : undefined}
-                value={email}
-                onChange={(event) => {
-                  setEmail(event.target.value);
-                  setError('');
-                    setErrorField('');
-                }}
-                className="w-full rounded-xl border border-[#c5daf2] bg-white py-3 pl-10 pr-3 text-base text-[#0e2a4a] high-contrast:border-white high-contrast:bg-black high-contrast:text-white"
-              />
-            </span>
           </label>
+          <span className="relative mt-2 block">
+            <Mail className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-[#6d7f74]" aria-hidden="true" />
+            <input
+              id="login-email"
+              type="email"
+              required
+              aria-required="true"
+              autoComplete="email"
+              aria-invalid={errorField === 'email'}
+              aria-describedby={errorField === 'email' ? 'login-error' : undefined}
+              value={email}
+              onChange={(event) => {
+                setEmail(event.target.value);
+                setError('');
+                  setErrorField('');
+              }}
+              className="w-full rounded-xl border border-[#c5daf2] bg-white py-3 pl-10 pr-3 text-base text-[#0e2a4a] high-contrast:border-white high-contrast:bg-black high-contrast:text-white"
+            />
+          </span>
+          <div className="mt-2 flex justify-end">
+            <VoiceInputButton
+              language={language}
+              onTranscript={(transcript) => {
+                setEmail(normalizeSpokenEmail(transcript));
+                setError('');
+                setErrorField('');
+              }}
+            />
+          </div>
 
-          <label className="mt-4 block text-sm font-semibold text-[#0e2a4a] high-contrast:text-white">
+          <label
+            htmlFor="login-password"
+            className="mt-4 block text-sm font-semibold text-[#0e2a4a] high-contrast:text-white"
+          >
             {page.passwordLabel}
-            <span className="relative mt-2 block">
-              <Lock className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-[#6d7f74]" aria-hidden="true" />
-              <input
-                type={showPassword ? 'text' : 'password'}
-                required
-                aria-required="true"
-                autoComplete={mode === 'register' ? 'new-password' : 'current-password'}
-                aria-invalid={errorField === 'password'}
-                aria-describedby={errorField === 'password' ? 'login-error' : undefined}
-                value={password}
-                onChange={(event) => {
-                  setPassword(event.target.value);
-                  setError('');
-                    setErrorField('');
-                }}
-                className="w-full rounded-xl border border-[#c5daf2] bg-white py-3 pl-10 pr-12 text-base text-[#0e2a4a] high-contrast:border-white high-contrast:bg-black high-contrast:text-white"
-              />
-              <button
-                type="button"
-                onClick={() => setShowPassword((current) => !current)}
-                aria-pressed={showPassword}
-                className="absolute right-2 top-1/2 grid h-9 w-9 -translate-y-1/2 place-items-center rounded-lg text-[#1a73e8] hover:bg-[#e7f3ff] high-contrast:text-yellow-300"
-              >
-                {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
-                <span className="sr-only">{showPassword ? page.hidePassword : page.showPassword}</span>
-              </button>
-            </span>
           </label>
+          <span className="relative mt-2 block">
+            <Lock className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-[#6d7f74]" aria-hidden="true" />
+            <input
+              id="login-password"
+              type={showPassword ? 'text' : 'password'}
+              required
+              aria-required="true"
+              autoComplete={mode === 'register' ? 'new-password' : 'current-password'}
+              aria-invalid={errorField === 'password'}
+              aria-describedby={errorField === 'password' ? 'login-error' : undefined}
+              value={password}
+              onChange={(event) => {
+                setPassword(event.target.value);
+                setError('');
+                  setErrorField('');
+              }}
+              className="w-full rounded-xl border border-[#c5daf2] bg-white py-3 pl-10 pr-12 text-base text-[#0e2a4a] high-contrast:border-white high-contrast:bg-black high-contrast:text-white"
+            />
+            <button
+              type="button"
+              onClick={() => setShowPassword((current) => !current)}
+              aria-pressed={showPassword}
+              className="absolute right-2 top-1/2 grid h-9 w-9 -translate-y-1/2 place-items-center rounded-lg text-[#1a73e8] hover:bg-[#e7f3ff] high-contrast:text-yellow-300"
+            >
+              {showPassword ? <EyeOff className="h-4 w-4" aria-hidden="true" /> : <Eye className="h-4 w-4" aria-hidden="true" />}
+              <span className="sr-only">{showPassword ? page.hidePassword : page.showPassword}</span>
+            </button>
+          </span>
+          <div className="mt-2 flex justify-end">
+            <VoiceInputButton
+              language={language}
+              onTranscript={(transcript) => {
+                setPassword(transcript);
+                setError('');
+                setErrorField('');
+              }}
+            />
+          </div>
 
           {mode === 'register' && (
-            <label className="mt-4 block text-sm font-semibold text-[#0e2a4a] high-contrast:text-white">
-              {page.confirmPassword}
+            <>
+              <label
+                htmlFor="login-confirm"
+                className="mt-4 block text-sm font-semibold text-[#0e2a4a] high-contrast:text-white"
+              >
+                {page.confirmPassword}
+              </label>
               <span className="relative mt-2 block">
                 <Lock className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-[#6d7f74]" aria-hidden="true" />
                 <input
+                  id="login-confirm"
                   type={showPassword ? 'text' : 'password'}
                   required
                   aria-required="true"
@@ -284,7 +335,17 @@ export const LoginToApply: React.FC<LoginToApplyProps> = ({
                   className="w-full rounded-xl border border-[#c5daf2] bg-white py-3 pl-10 pr-3 text-base text-[#0e2a4a] high-contrast:border-white high-contrast:bg-black high-contrast:text-white"
                 />
               </span>
-            </label>
+              <div className="mt-2 flex justify-end">
+                <VoiceInputButton
+                  language={language}
+                  onTranscript={(transcript) => {
+                    setConfirmPassword(transcript);
+                    setError('');
+                    setErrorField('');
+                  }}
+                />
+              </div>
+            </>
           )}
 
           <button

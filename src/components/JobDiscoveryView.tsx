@@ -5,6 +5,7 @@ import { getPageCopy } from '../engines/pageCopy';
 import { JobListing, NavigationView, PreferredLanguage } from '../types/accessbridge';
 import { JobPostingView } from './JobPostingView';
 import { LoginToApply } from './LoginToApply';
+import { VoiceInputButton } from './VoiceInputButton';
 
 interface JobDiscoveryViewProps {
   onSelectJobForApplication: (job: JobListing) => void;
@@ -362,7 +363,15 @@ export const JobDiscoveryView: React.FC<JobDiscoveryViewProps> = ({
                 setSearchNotice('');
               }}
               placeholder={page.searchPlaceholder}
-              className="min-w-0 flex-1 bg-transparent px-2 py-2.5 text-sm text-[#0e2a4a] outline-none placeholder:text-[#8aa093] high-contrast:text-white"
+              className="min-w-0 flex-1 bg-transparent px-2 py-2.5 text-sm text-[#0e2a4a] placeholder:text-[#8aa093] high-contrast:text-white"
+            />
+            <VoiceInputButton
+              language={language}
+              className="shrink-0"
+              onTranscript={(transcript) => {
+                setQuery(transcript);
+                setSearchNotice('');
+              }}
             />
             <button
               type="submit"

@@ -9,6 +9,7 @@ export type GazeVoiceStatus = 'off' | 'starting' | 'listening' | 'error';
 interface UseGazeVoiceCommandsOptions {
   enabled: boolean;
   engine: GazeControlEngine;
+  onActivate: () => void;
   onCalibrate: () => void;
   onPause: () => void;
   onResume: () => void;
@@ -18,13 +19,14 @@ interface UseGazeVoiceCommandsOptions {
 export function useGazeVoiceCommands({
   enabled,
   engine,
+  onActivate,
   onCalibrate,
   onPause,
   onResume,
   onStatus,
 }: UseGazeVoiceCommandsOptions): void {
-  const callbacksRef = useRef({ engine, onCalibrate, onPause, onResume, onStatus });
-  callbacksRef.current = { engine, onCalibrate, onPause, onResume, onStatus };
+  const callbacksRef = useRef({ engine, onActivate, onCalibrate, onPause, onResume, onStatus });
+  callbacksRef.current = { engine, onActivate, onCalibrate, onPause, onResume, onStatus };
 
   useEffect(() => {
     if (!enabled) {
@@ -41,6 +43,9 @@ export function useGazeVoiceCommands({
       const current = callbacksRef.current;
 
       switch (command) {
+        case 'activate':
+          current.onActivate();
+          return;
         case 'click': {
           const status = current.engine.getStatus();
           if (status === 'paused' || status === 'idle' || status === 'error') {
@@ -122,7 +127,7 @@ export function useGazeVoiceCommands({
           if (cancelled) return;
           callbacksRef.current.onStatus(
             'listening',
-            'Voice commands listening. Say click, select, scroll down, scroll up, calibrate, pause, or resume.'
+            'Voice commands listening. Say activate, click, select, scroll down, scroll up, calibrate, pause, or resume.'
           );
         },
         onTranscript: (transcript, isFinal) => {

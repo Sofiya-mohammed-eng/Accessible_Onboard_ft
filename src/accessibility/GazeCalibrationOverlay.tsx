@@ -314,6 +314,24 @@ export function GazeCalibrationOverlay({
       if (event.key === 'Escape') {
         event.preventDefault();
         handleCancel();
+        return;
+      }
+      if (event.key !== 'Tab' || !containerRef.current) return;
+      const focusable = Array.from(
+        containerRef.current.querySelectorAll<HTMLElement>(
+          'button:not([disabled]), [href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])'
+        )
+      );
+      if (focusable.length === 0) return;
+      const first = focusable[0];
+      const last = focusable[focusable.length - 1];
+      const active = document.activeElement;
+      if (event.shiftKey && (active === first || active === containerRef.current)) {
+        event.preventDefault();
+        last.focus();
+      } else if (!event.shiftKey && (active === last || active === containerRef.current)) {
+        event.preventDefault();
+        first.focus();
       }
     };
 

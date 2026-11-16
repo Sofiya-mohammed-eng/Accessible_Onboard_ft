@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { Globe, Menu, Moon, Sun, X } from 'lucide-react';
 import { getLocalizedCopy } from '../engines/i18n';
 import { ColorMode, NavigationView, PreferredLanguage } from '../types/accessbridge';
@@ -31,7 +31,17 @@ export const AppHeader: React.FC<AppHeaderProps> = ({
   onSetColorMode,
 }) => {
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+  const mobileToggleRef = useRef<HTMLButtonElement | null>(null);
+  const mobileDrawerRef = useRef<HTMLElement | null>(null);
   const copy = getLocalizedCopy(language);
+
+  useEffect(() => {
+    if (mobileMenuOpen) {
+      mobileDrawerRef.current
+        ?.querySelector<HTMLButtonElement>('button')
+        ?.focus();
+    }
+  }, [mobileMenuOpen]);
 
   const workspaceLinks: Array<{ view: NavigationView; label: string }> = signedIn
     ? [
@@ -152,9 +162,18 @@ export const AppHeader: React.FC<AppHeaderProps> = ({
 
           {workspaceLinks.length > 0 && (
           <button
+            ref={mobileToggleRef}
             type="button"
-            onClick={() => setMobileMenuOpen((prev) => !prev)}
+            onClick={() => {
+              if (mobileMenuOpen) {
+                setMobileMenuOpen(false);
+                mobileToggleRef.current?.focus();
+              } else {
+                setMobileMenuOpen(true);
+              }
+            }}
             aria-expanded={mobileMenuOpen}
+            aria-controls="mobile-nav-drawer"
             aria-label={mobileMenuOpen ? 'Close navigation menu' : 'Open navigation menu'}
             className="md:hidden inline-flex items-center justify-center rounded-lg border border-slate-300 p-2.5 text-[#001F3F] hover:bg-slate-100 high-contrast:border-white high-contrast:text-white"
           >
@@ -167,6 +186,8 @@ export const AppHeader: React.FC<AppHeaderProps> = ({
       {/* Mobile Navigation Drawer */}
       {mobileMenuOpen && workspaceLinks.length > 0 && (
         <nav
+          ref={mobileDrawerRef}
+          id="mobile-nav-drawer"
           aria-label="Mobile primary navigation"
           className="md:hidden border-t border-slate-200 bg-white px-4 py-3 space-y-1 high-contrast:border-white high-contrast:bg-black"
         >

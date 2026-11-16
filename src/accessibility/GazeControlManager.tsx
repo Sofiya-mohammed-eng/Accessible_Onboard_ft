@@ -5,10 +5,7 @@ import { GazeCalibrationOverlay } from './GazeCalibrationOverlay';
 import { GazeControlEngine, describeInteractiveElement } from './gazeControlEngine';
 import { GazeOverlay } from './GazeOverlay';
 import { GazeSettingsPanel } from './GazeSettingsPanel';
-import {
-  hasSavedGazeCalibration,
-  isGazeAutoStartRequested,
-} from './gazeCalibration';
+import { clearGazeAutoStartDismissal, dismissGazeAutoStart } from './gazeCalibration';
 import {
   getPermissionPromptSnapshot,
   subscribePermissionPrompt,
@@ -79,15 +76,6 @@ export function GazeControlManager({
   const [pendingCalibration, setPendingCalibration] = useState(false);
   const [voiceStatus, setVoiceStatus] = useState<GazeVoiceStatus>('off');
   const [voiceMessage, setVoiceMessage] = useState('Voice commands are off.');
-  const autoCalibrationStartedRef = useRef(false);
-
-  useEffect(() => {
-    if (autoCalibrationStartedRef.current) return;
-    autoCalibrationStartedRef.current = true;
-    if (!isGazeAutoStartRequested() || hasSavedGazeCalibration()) return;
-    setPendingCalibration(true);
-    setLiveMessage('Starting gaze control and opening hands-free calibration.');
-  }, []);
 
   useEffect(() => {
     const unsubscribeStatus = engine.onStatus(setStatus);
@@ -141,7 +129,13 @@ export function GazeControlManager({
   }, [engine, preferences.gazeControlEnabled]);
 
   const toggleEnabled = useCallback(() => {
-    onUpdatePreferences({ gazeControlEnabled: !preferences.gazeControlEnabled });
+    const next = !preferences.gazeControlEnabled;
+    if (next) {
+      clearGazeAutoStartDismissal();
+    } else {
+      dismissGazeAutoStart();
+    }
+    onUpdatePreferences({ gazeControlEnabled: next });
   }, [onUpdatePreferences, preferences.gazeControlEnabled]);
 
   const activateAtReticle = useCallback(() => {
@@ -252,11 +246,13 @@ export function GazeControlManager({
       setLiveMessage('Gaze control is already paused.');
       return;
     }
+    dismissGazeAutoStart();
     onUpdatePreferences({ gazeControlEnabled: false });
     setLiveMessage('Gaze control paused by voice command.');
   }, [onUpdatePreferences, preferences.gazeControlEnabled]);
 
   const handleVoiceResume = useCallback(() => {
+    clearGazeAutoStartDismissal();
     if (preferences.gazeControlEnabled) {
       setLiveMessage('Gaze control is already active.');
       return;
@@ -264,6 +260,33 @@ export function GazeControlManager({
     onUpdatePreferences({ gazeControlEnabled: true });
     setLiveMessage('Gaze control resumed by voice command.');
   }, [onUpdatePreferences, preferences.gazeControlEnabled]);
+
+  const handleVoiceActivate = useCallback(() => {
+    clearGazeAutoStartDismissal();
+    if (calibrationOpen) {
+      setLiveMessage('Calibration is already open.');
+      return;
+    }
+    if (!preferences.gazeControlEnabled) {
+      setPendingCalibration(true);
+      onUpdatePreferences({ gazeControlEnabled: true });
+      setLiveMessage('Gaze control activated by voice command. Starting hands-free calibration.');
+      return;
+    }
+    if (status === 'tracking' || status === 'no-face') {
+      setPanelOpen(false);
+      setCalibrationOpen(true);
+      setLiveMessage('Hands-free calibration started by voice command.');
+      return;
+    }
+    setPendingCalibration(true);
+    setLiveMessage('Gaze control is active. Waiting for tracking before calibration.');
+  }, [
+    calibrationOpen,
+    onUpdatePreferences,
+    preferences.gazeControlEnabled,
+    status,
+  ]);
 
   const handleVoiceCalibrate = useCallback(() => {
     if (calibrationOpen) {
@@ -298,6 +321,7 @@ export function GazeControlManager({
   useGazeVoiceCommands({
     enabled: preferences.voiceCommands,
     engine,
+    onActivate: handleVoiceActivate,
     onCalibrate: handleVoiceCalibrate,
     onPause: handleVoicePause,
     onResume: handleVoiceResume,
@@ -320,7 +344,7 @@ export function GazeControlManager({
           type="button"
           onClick={() => setPanelOpen(true)}
           aria-expanded={panelOpen}
-          aria-controls="gaze-settings-title"
+          aria-controls="gaze-settings-panel"
           aria-label={`Open gaze and head control settings. Current status: ${toggleLabel}.`}
           className={`fixed bottom-20 right-4 z-40 inline-flex items-center gap-2 rounded-lg border-2 px-4 py-2.5 text-xs font-semibold shadow-lg transition-colors ${
             error
@@ -428,7 +452,7 @@ export function GazeControlManager({
           <Crosshair className="mt-0.5 h-3.5 w-3.5 shrink-0 text-[#0056B3] high-contrast:text-yellow-300" aria-hidden="true" />
           <span>
             Hands-free navigation is available. Open <strong>Gaze</strong> to start the camera and
-            calibrate.
+            calibrate, or say <strong>activate</strong> when voice commands are on.
           </span>
         </div>
       )}

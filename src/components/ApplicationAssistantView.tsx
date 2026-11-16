@@ -1,17 +1,17 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { ArrowLeft, ArrowRight, Check, Mic, Volume2 } from 'lucide-react';
+import { ArrowLeft, ArrowRight, Check, Volume2 } from 'lucide-react';
+import { getPageCopy } from '../engines/pageCopy';
 import {
-  detectSpeechSupport,
-  startVoiceDictation,
-  VoiceInputSession,
-} from '../engines/accessibilityEngine';
-import { getLanguageOption } from '../engines/i18n';
-import { getPageCopy, unsupportedLanguageNotice } from '../engines/pageCopy';
+  clearApplicationStepper,
+  loadApplicationStepper,
+  saveApplicationStepper,
+} from '../engines/preferencesStore';
 import {
   AccessibilityPreferences,
   ApplicationDraft,
   NavigationView,
 } from '../types/accessbridge';
+import { VoiceInputButton } from './VoiceInputButton';
 
 interface ApplicationAssistantViewProps {
   draft: ApplicationDraft;
@@ -57,7 +57,6 @@ export const ApplicationAssistantView: React.FC<ApplicationAssistantViewProps> =
   onSpeakText,
 }) => {
   const page = getPageCopy(preferences.language);
-  const speechLang = getLanguageOption(preferences.language).speechLang;
   const questionTitles: Record<AnswerKey, string> = {
     name: page.qName,
     phone: page.qPhone,
@@ -66,18 +65,19 @@ export const ApplicationAssistantView: React.FC<ApplicationAssistantViewProps> =
     skills: page.qSkills,
     cv: page.addCvTitle,
   };
-  const jobTitle = draft.jobTitle.trim() || 'Customer Support Associate';
-  const employer = draft.employer.trim() || 'Selam Digital Services';
-  const [step, setStep] = useState(1);
-  const [answers, setAnswers] = useState(SAMPLE_ANSWERS);
+  const jobTitle = draft.jobTitle.trim() || page.defaultJobTitle;
+  const employer = draft.employer.trim() || page.defaultEmployer;
+  const [savedStepper] = useState(loadApplicationStepper);
+  const [step, setStep] = useState(savedStepper.step);
+  const [answers, setAnswers] = useState<Record<AnswerKey, string>>(() => ({
+    ...SAMPLE_ANSWERS,
+    ...(savedStepper.answers as Partial<Record<AnswerKey, string>>),
+  }));
   const [submitted, setSubmitted] = useState(false);
-  const [agreed, setAgreed] = useState(true);
-  const [voiceNote, setVoiceNote] = useState('');
+  const [agreed, setAgreed] = useState(savedStepper.agreed);
   const [formError, setFormError] = useState('');
   const [speaking, setSpeaking] = useState(false);
   const headingRef = useRef<HTMLHeadingElement>(null);
-  const voiceRef = useRef<VoiceInputSession | null>(null);
-  const speech = detectSpeechSupport();
 
   useEffect(() => {
     headingRef.current?.focus();
@@ -85,10 +85,8 @@ export const ApplicationAssistantView: React.FC<ApplicationAssistantViewProps> =
   }, [step, submitted]);
 
   useEffect(() => {
-    return () => {
-      voiceRef.current?.stop();
-    };
-  }, []);
+    saveApplicationStepper({ answers, step, agreed });
+  }, [answers, step, agreed]);
 
   const setAnswer = (key: AnswerKey, value: string) => {
     setFormError('');
@@ -127,42 +125,6 @@ export const ApplicationAssistantView: React.FC<ApplicationAssistantViewProps> =
     onSpeakText(text);
     setSpeaking(true);
     window.setTimeout(() => setSpeaking(false), 1200);
-  };
-
-  const dictate = (key: AnswerKey) => {
-    if (voiceRef.current) {
-      voiceRef.current.stop();
-      voiceRef.current = null;
-      setVoiceNote(page.voiceStopped);
-      return;
-    }
-    if (!speech.recognitionSupported) {
-      setAnswer(key, answers[key] || page.voiceAdded);
-      setVoiceNote(page.voiceAdded);
-      return;
-    }
-    setVoiceNote(page.voiceListening);
-    const session = startVoiceDictation({
-      lang: speechLang,
-      onTranscript: (transcript, isFinal) => {
-        if (!isFinal) return;
-        const blocked = unsupportedLanguageNotice(transcript, preferences.language);
-        if (blocked) {
-          setVoiceNote(blocked);
-          onSpeakText(blocked);
-          return;
-        }
-        setAnswer(key, transcript);
-        setVoiceNote(page.voiceAdded);
-      },
-      onError: (message) => {
-        setVoiceNote(/language-not-supported/i.test(message) ? page.languageNotSupported : message);
-      },
-      onEnd: () => {
-        voiceRef.current = null;
-      },
-    });
-    voiceRef.current = session;
   };
 
   if (submitted) {
@@ -313,8 +275,8 @@ export const ApplicationAssistantView: React.FC<ApplicationAssistantViewProps> =
           >
             {page.thanksAndLuck}
           </p>
-          <p className="sr-only" role="status">
-            Application submitted. Reference OP-JOB-7352.
+          <p className="sr-only" role="status" aria-live="polite" aria-atomic="true">
+            {page.submittedStatus}
           </p>
         </div>
       </div>
@@ -329,7 +291,9 @@ export const ApplicationAssistantView: React.FC<ApplicationAssistantViewProps> =
         <div className="mb-8">
           <div className="flex items-center justify-between text-sm text-slate-600 high-contrast:text-slate-200">
             <span>{page.progress}</span>
-            <strong className="text-[#0e2a4a] high-contrast:text-white">Step {step} of 7</strong>
+            <strong className="text-[#0e2a4a] high-contrast:text-white">
+              {page.stepOf.replace('{step}', String(step)).replace('{total}', '7')}
+            </strong>
           </div>
           <div
             className="mt-2 h-2 overflow-hidden rounded-full bg-[#e4eef8]"
@@ -379,19 +343,12 @@ export const ApplicationAssistantView: React.FC<ApplicationAssistantViewProps> =
                 className="mt-2 w-full rounded-xl border border-[#c5daf2] bg-white px-4 py-3 text-base text-[#0e2a4a] high-contrast:border-white high-contrast:bg-black high-contrast:text-white"
               />
             </label>
-            <button
-              type="button"
-              onClick={() => dictate(question.key)}
-              className="mt-3 inline-flex items-center gap-2 rounded-xl border border-[#9eb8d6] bg-white px-4 py-3 text-sm font-bold text-[#0d4f9e] high-contrast:border-white high-contrast:bg-black high-contrast:text-white"
-            >
-              <Mic className="h-4 w-4" aria-hidden="true" />
-              {page.answerByVoice}
-            </button>
-            {voiceNote && (
-              <p role="status" className="mt-3 text-sm text-slate-600 high-contrast:text-slate-200">
-                {voiceNote}
-              </p>
-            )}
+            <div className="mt-3">
+              <VoiceInputButton
+                language={preferences.language}
+                onTranscript={(transcript) => setAnswer(question.key, transcript)}
+              />
+            </div>
           </>
         )}
 
@@ -400,7 +357,7 @@ export const ApplicationAssistantView: React.FC<ApplicationAssistantViewProps> =
             <h1
               ref={headingRef}
               tabIndex={-1}
-              className="font-display text-4xl font-bold text-[#0e2a4a] focus:outline-none high-contrast:text-white"
+              className="font-display text-4xl font-bold text-[#0e2a4a] focus:outline-none focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-[#f5a623] high-contrast:text-white"
             >
               {page.addCvTitle}
             </h1>
@@ -452,14 +409,14 @@ export const ApplicationAssistantView: React.FC<ApplicationAssistantViewProps> =
             <h1
               ref={headingRef}
               tabIndex={-1}
-              className="font-display text-4xl font-bold text-[#0e2a4a] focus:outline-none high-contrast:text-white"
+              className="font-display text-4xl font-bold text-[#0e2a4a] focus:outline-none focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-[#f5a623] high-contrast:text-white"
             >
               {page.reviewTitle}
             </h1>
             <div className="mt-5 rounded-2xl bg-[#e8f3ff] px-4 py-4 text-[#0e2a4a] high-contrast:bg-black high-contrast:text-white">
               <strong>{page.youAreApplying}</strong>
               <br />
-              {jobTitle} at {employer}
+              {jobTitle} {page.at} {employer}
             </div>
             <dl className="mt-4 overflow-hidden rounded-2xl border border-[#d5e6f7] bg-white high-contrast:border-white high-contrast:bg-black">
               {REVIEW_FIELDS.map((field) => (
@@ -531,7 +488,10 @@ export const ApplicationAssistantView: React.FC<ApplicationAssistantViewProps> =
               type="button"
               data-voice="submit"
               disabled={!agreed}
-              onClick={() => setSubmitted(true)}
+              onClick={() => {
+                clearApplicationStepper();
+                setSubmitted(true);
+              }}
               className="inline-flex items-center gap-2 rounded-xl bg-[#1a73e8] px-4 py-3 text-sm font-bold text-white hover:bg-[#0d4f9e] disabled:opacity-50"
             >
               {page.submitApplication}

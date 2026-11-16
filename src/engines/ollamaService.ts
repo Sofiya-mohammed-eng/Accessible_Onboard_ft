@@ -9,7 +9,7 @@ import type {
 } from '../types/ollama';
 
 const DEFAULT_BASE_URL = 'http://localhost:11434';
-const DEFAULT_MODEL = 'qwen2.5';
+const DEFAULT_MODEL = 'qwen3.5:4b';
 const DEFAULT_TIMEOUT_MS = 60_000;
 
 export class OllamaServiceError extends Error {

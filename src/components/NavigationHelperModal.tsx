@@ -45,6 +45,7 @@ export const NavigationHelperModal: React.FC<NavigationHelperModalProps> = ({
   onOpenStartupSetup,
 }) => {
   const closeBtnRef = useRef<HTMLButtonElement | null>(null);
+  const panelRef = useRef<HTMLDivElement | null>(null);
   const voiceRef = useRef<VoiceInputSession | null>(null);
   const [isListening, setIsListening] = useState(false);
   const [voiceFeedback, setVoiceFeedback] = useState('');
@@ -56,17 +57,36 @@ export const NavigationHelperModal: React.FC<NavigationHelperModalProps> = ({
       setIsListening(false);
       return;
     }
+    const previousFocus = document.activeElement as HTMLElement | null;
     closeBtnRef.current?.focus();
 
     const handleKey = (e: KeyboardEvent) => {
       if (e.key === 'Escape') {
         onClose();
+        return;
+      }
+      if (e.key !== 'Tab' || !panelRef.current) return;
+      const focusable = Array.from(
+        panelRef.current.querySelectorAll<HTMLElement>(
+          'button:not([disabled]), [href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])'
+        )
+      );
+      if (focusable.length === 0) return;
+      const first = focusable[0];
+      const last = focusable[focusable.length - 1];
+      if (e.shiftKey && document.activeElement === first) {
+        e.preventDefault();
+        last.focus();
+      } else if (!e.shiftKey && document.activeElement === last) {
+        e.preventDefault();
+        first.focus();
       }
     };
     window.addEventListener('keydown', handleKey);
     return () => {
       window.removeEventListener('keydown', handleKey);
       voiceRef.current?.stop();
+      previousFocus?.focus();
     };
   }, [isOpen, onClose]);
 
@@ -119,7 +139,7 @@ export const NavigationHelperModal: React.FC<NavigationHelperModalProps> = ({
       aria-labelledby="nav-helper-title"
       className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 p-4"
     >
-      <div className="w-full max-w-2xl rounded-xl border-2 border-[#001F3F] bg-white p-6 shadow-xl high-contrast:border-yellow-300 high-contrast:bg-black">
+      <div ref={panelRef} className="w-full max-w-2xl rounded-xl border-2 border-[#001F3F] bg-white p-6 shadow-xl high-contrast:border-yellow-300 high-contrast:bg-black">
         <div className="flex items-start justify-between gap-4 border-b border-slate-200 pb-4 high-contrast:border-white">
           <div className="flex items-center gap-2.5">
             <Compass className="h-6 w-6 text-[#0056B3] high-contrast:text-yellow-300" aria-hidden="true" />

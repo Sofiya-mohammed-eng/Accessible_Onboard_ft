@@ -86,6 +86,27 @@ export const WebsiteUnderstandingView: React.FC<WebsiteUnderstandingViewProps> =
     }
   };
 
+  const INSPECTION_MODES: Array<'sample' | 'html' | 'extension'> = ['sample', 'html', 'extension'];
+
+  const handleTabKeyDown = (event: React.KeyboardEvent<HTMLButtonElement>) => {
+    const current = INSPECTION_MODES.indexOf(activeMode);
+    let next = current;
+    if (event.key === 'ArrowRight' || event.key === 'ArrowDown') {
+      next = (current + 1) % INSPECTION_MODES.length;
+    } else if (event.key === 'ArrowLeft' || event.key === 'ArrowUp') {
+      next = (current - 1 + INSPECTION_MODES.length) % INSPECTION_MODES.length;
+    } else if (event.key === 'Home') {
+      next = 0;
+    } else if (event.key === 'End') {
+      next = INSPECTION_MODES.length - 1;
+    } else {
+      return;
+    }
+    event.preventDefault();
+    setActiveMode(INSPECTION_MODES[next]);
+    document.getElementById(`inspection-tab-${INSPECTION_MODES[next]}`)?.focus();
+  };
+
   const missingAltCount = (activeMode === 'html' ? parsedHtmlElements : activeSample.elements).filter(
     (e) => e.altTextStatus === 'missing'
   ).length;
@@ -148,8 +169,12 @@ export const WebsiteUnderstandingView: React.FC<WebsiteUnderstandingViewProps> =
           <div className="flex flex-wrap gap-2" role="tablist" aria-label="Inspection mode">
             <button
               type="button"
+              id="inspection-tab-sample"
               role="tab"
               aria-selected={activeMode === 'sample'}
+              aria-controls="inspection-panel"
+              tabIndex={activeMode === 'sample' ? 0 : -1}
+              onKeyDown={handleTabKeyDown}
               onClick={() => setActiveMode('sample')}
               className={`rounded-lg px-4 py-2 text-xs font-semibold transition-colors ${
                 activeMode === 'sample'
@@ -161,8 +186,12 @@ export const WebsiteUnderstandingView: React.FC<WebsiteUnderstandingViewProps> =
             </button>
             <button
               type="button"
+              id="inspection-tab-html"
               role="tab"
               aria-selected={activeMode === 'html'}
+              aria-controls="inspection-panel"
+              tabIndex={activeMode === 'html' ? 0 : -1}
+              onKeyDown={handleTabKeyDown}
               onClick={() => setActiveMode('html')}
               className={`rounded-lg px-4 py-2 text-xs font-semibold transition-colors ${
                 activeMode === 'html'
@@ -174,8 +203,12 @@ export const WebsiteUnderstandingView: React.FC<WebsiteUnderstandingViewProps> =
             </button>
             <button
               type="button"
+              id="inspection-tab-extension"
               role="tab"
               aria-selected={activeMode === 'extension'}
+              aria-controls="inspection-panel"
+              tabIndex={activeMode === 'extension' ? 0 : -1}
+              onKeyDown={handleTabKeyDown}
               onClick={() => setActiveMode('extension')}
               className={`rounded-lg px-4 py-2 text-xs font-semibold transition-colors ${
                 activeMode === 'extension'
@@ -214,6 +247,13 @@ export const WebsiteUnderstandingView: React.FC<WebsiteUnderstandingViewProps> =
       </div>
 
       {/* Mode Content */}
+      <div
+        role="tabpanel"
+        id="inspection-panel"
+        aria-labelledby={`inspection-tab-${activeMode}`}
+        tabIndex={0}
+        className="rounded-xl focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#1a73e8]"
+      >
       {activeMode === 'extension' ? (
         <div className="mt-6 rounded-xl border border-slate-200 bg-white p-6 high-contrast:border-white high-contrast:bg-black">
           <div className="flex items-center gap-2 text-[#001F3F] high-contrast:text-yellow-300">
@@ -469,6 +509,7 @@ export const WebsiteUnderstandingView: React.FC<WebsiteUnderstandingViewProps> =
           </div>
         </div>
       )}
+      </div>
     </div>
   );
 };

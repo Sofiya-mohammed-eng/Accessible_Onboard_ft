@@ -1,4 +1,5 @@
 export type GazeVoiceCommand =
+  | 'activate'
   | 'click'
   | 'scroll-down'
   | 'scroll-up'
@@ -29,6 +30,15 @@ export function matchGazeVoiceCommand(transcript: string): GazeVoiceCommand | nu
   }
   if (/\bclick\b/.test(text) || /\bselect\b/.test(text)) {
     return 'click';
+  }
+  if (
+    /\bactivate\b/.test(text) ||
+    /\bgaze\s+on\b/.test(text) ||
+    /\bturn\s+on\s+gaze\b/.test(text) ||
+    /\benable\s+gaze\b/.test(text) ||
+    /\bstart\s+gaze\b/.test(text)
+  ) {
+    return 'activate';
   }
   if (/\bpause\b/.test(text) || /\bstop\b/.test(text)) {
     return 'pause';

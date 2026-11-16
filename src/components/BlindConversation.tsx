@@ -3,6 +3,7 @@ import { listenOnce, speakAndWait, stopSpeakingAloud } from '../engines/accessib
 import { getLanguageOption, getLocalizedCopy } from '../engines/i18n';
 import { getPageCopy, unsupportedLanguageNotice } from '../engines/pageCopy';
 import { interpretAccount } from '../engines/accountIntent';
+import { keywordIntent } from '../engines/guidanceService';
 import { emailLooksValid, normalizeSpokenEmail } from '../engines/spokenEmail';
 import { PreferredLanguage } from '../types/accessbridge';
 
@@ -17,6 +18,9 @@ interface BlindConversationProps {
   onOpenDashboard: () => void;
   onChooseLanguage: (language: PreferredLanguage) => void;
   onContinueToSignIn: () => void;
+  onAskAi: (question: string) => void;
+  onStop: () => void;
+  onListeningChange: (listening: boolean) => void;
 }
 
 const GET_STARTED = ['get started', 'get start', 'lets start', "let's start", 'start', 'ጀምር', 'ጀምሩ', 'ጀመር', 'ጀምሪ', 'እንጀምር', 'ጀምረን', 'ጀምርልኝ', 'እጀምር', 'ተጀመር', 'jemer', 'jemir', 'jemr', 'gemer', 'gemir', 'jemeru'];
@@ -62,6 +66,18 @@ const CORRECTION = [
 ];
 const NEXT = ['continue', 'next', 'submit', 'ቀጥል', 'ቀጽል', 'ቀጣይ', 'ቀጥይ', 'እንቀጥል', 'ቀጥለን', 'ቀጠል', 'ላክ', 'ስላክ', 'ገምግም', 'review', 'ketl', 'ketel', 'kettel', 'ketel'];
 const FIND_JOBS = ['find jobs', 'find job', 'jobs', 'ስራ ፈልግ', 'ሥራ'];
+const HELP = [
+  'ask ai',
+  'ask the ai',
+  'ask for help',
+  'help me',
+  'i need help',
+  'help',
+  'እርዳታ',
+  'እርዳኝ',
+  'ርዳኝ',
+  'ጠይቅ',
+];
 
 function includesAny(text: string, phrases: string[]) {
   const lower = text.toLowerCase();
@@ -174,6 +190,9 @@ export function BlindConversation({
   onOpenDashboard,
   onChooseLanguage,
   onContinueToSignIn,
+  onAskAi,
+  onStop,
+  onListeningChange,
 }: BlindConversationProps) {
   const [promptKey, setPromptKey] = useState(pageKey);
   const captionRef = useRef(onCaption);
@@ -181,8 +200,14 @@ export function BlindConversation({
   const lastProblemRef = useRef('');
   const problemSpeechRef = useRef<Promise<void>>(Promise.resolve());
   const guideActiveRef = useRef(false);
+  const onAskAiRef = useRef(onAskAi);
+  const onStopRef = useRef(onStop);
+  const onListeningChangeRef = useRef(onListeningChange);
   captionRef.current = onCaption;
   languageRef.current = language;
+  onAskAiRef.current = onAskAi;
+  onStopRef.current = onStop;
+  onListeningChangeRef.current = onListeningChange;
 
   useEffect(() => {
     if (pageKey !== 'apply') {
@@ -218,8 +243,14 @@ export function BlindConversation({
 
     const hear = async (lang?: string) => {
       const once = async (code: string) => {
-        captionRef.current(code.startsWith('am') ? 'እያዳመጥኩ ነው…' : 'Listening…');
-        const transcript = await listenOnce(code);
+        captionRef.current(code.startsWith('am') ? 'እያዳምጥኩ ነው…' : 'Listening…');
+        onListeningChangeRef.current(true);
+        let transcript = '';
+        try {
+          transcript = await listenOnce(code);
+        } finally {
+          onListeningChangeRef.current(false);
+        }
         if (cancelled || !transcript) return '';
         const blocked = unsupportedLanguageNotice(transcript, currentLanguage());
         if (blocked) {
@@ -227,6 +258,26 @@ export function BlindConversation({
           return '';
         }
         captionRef.current(transcript);
+        const intent = keywordIntent(transcript, currentLanguage());
+        if (intent.type === 'stop') {
+          onStopRef.current();
+          return '';
+        }
+        if (intent.type === 'help' || includesAny(transcript, HELP)) {
+          await say(amharic() ? 'ጥያቄዎን ይናገሩ።' : 'Ask your question.');
+          onListeningChangeRef.current(true);
+          let question = '';
+          try {
+            question = await listenOnce(code);
+          } finally {
+            onListeningChangeRef.current(false);
+          }
+          if (question && !cancelled) {
+            await say(amharic() ? 'እራስሰጣለሁ።' : 'Let me think.');
+            onAskAiRef.current(question);
+          }
+          return '';
+        }
         return transcript;
       };
       if (lang) return once(lang);
@@ -388,9 +439,9 @@ export function BlindConversation({
       }
 
       if (pageKey === 'landing') {
-        await say('Find work from Ethiopia to the world. Say get started.', 'en-US');
+        await say('Find work from Ethiopia to the world. Say get started, or say help.', 'en-US');
         if (cancelled) return;
-        await say('ከኢትዮጵያ እስከ ዓለም ሥራ ይፈልጉ። ለመጀመር ጀምር ይበሉ።', 'am-ET');
+        await say('ከኢትዮጵያ እስከ ዓለም ሥራ ይፈልጉ። ለመጀመር ጀምር ይበሉ። እርዳታ ለማግኘት እርዳታ ይበሉ።', 'am-ET');
         for (let attempt = 0; attempt < 4 && !cancelled; attempt += 1) {
           const command = (await hear('am-ET')) || (await hear('en-US'));
           if (wantsStart(command)) {
@@ -835,6 +886,7 @@ export function BlindConversation({
       cancelled = true;
       guideActiveRef.current = false;
       window.clearTimeout(timer);
+      onListeningChangeRef.current(false);
       stopSpeakingAloud();
     };
   }, [

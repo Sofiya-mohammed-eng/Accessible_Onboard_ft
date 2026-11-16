@@ -77,6 +77,23 @@
     outline-offset: 3px;
   }
 
+  /* WCAG 2.2 touch targets: keep primary controls at least 44x44 CSS px */
+  button,
+  [role='button'],
+  [role='tab'],
+  [role='radio'],
+  summary,
+  a.skip-link {
+    min-height: 44px;
+  }
+
+  button:not([data-compact]),
+  [role='button'],
+  [role='tab'],
+  summary {
+    min-width: 44px;
+  }
+
   html.high-contrast body {
     background-color: #000000 !important;
     color: #ffffff !important;
