@@ -1,5 +1,7 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { Mic, Square, Volume2, VolumeX } from 'lucide-react';
+import { getLanguageOption } from '../engines/i18n';
+import { listenOnce } from '../engines/accessibilityEngine';
 import type { GuidanceMode, PreferredLanguage } from '../types/accessbridge';
 
 export type AssistantState = 'speaking' | 'listening' | 'off';
@@ -11,6 +13,7 @@ interface AssistantStatusPillProps {
   visible: boolean;
   onStop: () => void;
   onTurnOn: () => void;
+  onWakePhrase: (transcript: string) => void;
 }
 
 const LABELS = {
@@ -32,7 +35,10 @@ export const AssistantStatusPill: React.FC<AssistantStatusPillProps> = ({
   visible,
   onStop,
   onTurnOn,
+  onWakePhrase,
 }) => {
+  const [wakeListening, setWakeListening] = useState(false);
+  const [wakeNote, setWakeNote] = useState('');
   if (!visible) return null;
 
   const amharic = language === 'am';
@@ -44,6 +50,31 @@ export const AssistantStatusPill: React.FC<AssistantStatusPillProps> = ({
     : state === 'speaking'
       ? 'bg-[#1a73e8] animate-pulse'
       : 'bg-emerald-500 animate-pulse';
+
+  const listenForWakePhrase = async () => {
+    if (wakeListening) return;
+    setWakeListening(true);
+    setWakeNote(amharic ? 'የማብሪያ ቃሉን እያዳመጥኩ ነው።' : 'Listening for an activation phrase.');
+    try {
+      const transcript = await listenOnce(getLanguageOption(language).speechLang, 10000);
+      if (!transcript) {
+        setWakeNote(amharic ? 'ቃል አልተሰማም። እንደገና ይሞክሩ።' : 'No phrase was heard. Try again.');
+        return;
+      }
+      onWakePhrase(transcript);
+      setWakeNote(transcript);
+    } catch (error) {
+      setWakeNote(
+        error instanceof Error
+          ? error.message
+          : amharic
+            ? 'ማይክራፎኑን መጠቀም አልተቻለም።'
+            : 'Could not use the microphone.',
+      );
+    } finally {
+      setWakeListening(false);
+    }
+  };
 
   return (
     <div
@@ -65,14 +96,42 @@ export const AssistantStatusPill: React.FC<AssistantStatusPillProps> = ({
         <span className="text-xs font-semibold text-[#0e2a4a] high-contrast:text-white">{label}</span>
       </span>
       {isOff ? (
-        <button
-          type="button"
-          onClick={onTurnOn}
-          className="inline-flex min-h-[44px] items-center gap-1.5 rounded-full bg-[#1a73e8] px-3 text-xs font-bold text-white hover:bg-[#0d4f9e] high-contrast:bg-yellow-300 high-contrast:text-black"
-        >
-          <Volume2 className="h-4 w-4" aria-hidden="true" />
-          {amharic ? 'አብራ' : 'Turn on'}
-        </button>
+        <>
+          <button
+            type="button"
+            disabled={wakeListening}
+            onClick={onTurnOn}
+            className="inline-flex min-h-[44px] items-center gap-1.5 rounded-full bg-[#1a73e8] px-3 text-xs font-bold text-white hover:bg-[#0d4f9e] disabled:opacity-60 high-contrast:bg-yellow-300 high-contrast:text-black"
+          >
+            <Volume2 className="h-4 w-4" aria-hidden="true" />
+            {amharic ? 'አብራ' : 'Turn on'}
+          </button>
+          <button
+            type="button"
+            disabled={wakeListening}
+            onClick={() => void listenForWakePhrase()}
+            aria-label={amharic ? 'የማብሪያ ቃል ይናገሩ' : 'Say a voice assistant activation phrase'}
+            className="inline-flex min-h-[44px] items-center gap-1.5 rounded-full border border-[#9eb8d6] bg-white px-3 text-xs font-bold text-[#0d4f9e] disabled:opacity-60 high-contrast:border-white high-contrast:bg-black high-contrast:text-white"
+          >
+            <Mic className="h-4 w-4" aria-hidden="true" />
+            {wakeListening
+              ? amharic ? 'እያዳመጥኩ ነው' : 'Listening'
+              : amharic ? 'ረዳቱን አብራ ይበሉ' : 'Say “turn on”'}
+          </button>
+          {wakeListening && (
+            <button
+              type="button"
+              onClick={onStop}
+              className="inline-flex min-h-[44px] items-center gap-1.5 rounded-full bg-[#0e2a4a] px-3 text-xs font-bold text-white high-contrast:bg-yellow-300 high-contrast:text-black"
+            >
+              <Square className="h-3.5 w-3.5" aria-hidden="true" />
+              {amharic ? 'አቁም' : 'Stop'}
+            </button>
+          )}
+          <span className="sr-only" role="status" aria-live="polite" aria-atomic="true">
+            {wakeNote}
+          </span>
+        </>
       ) : (
         <button
           type="button"

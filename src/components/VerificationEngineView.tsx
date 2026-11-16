@@ -365,6 +365,13 @@ export const VerificationEngineView: React.FC<VerificationEngineViewProps> = ({
               <input
                 id="intended-email"
                 type="email"
+                lang="en"
+                dir="ltr"
+                inputMode="email"
+                autoCapitalize="none"
+                autoCorrect="off"
+                spellCheck={false}
+                style={{ direction: 'ltr', textAlign: 'left' }}
                 value={intended.email}
                 onChange={(e) => onUpdateIntended({ ...intended, email: e.target.value })}
                 className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm text-slate-900 high-contrast:border-white high-contrast:bg-black high-contrast:text-white"

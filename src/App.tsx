@@ -14,6 +14,7 @@ import { GazeControlManager } from './accessibility/GazeControlManager';
 import {
   dismissScreenReaderNotice,
   getScreenReaderChoice,
+  isScreenReaderActive,
   isScreenReaderNoticeDismissed,
   setScreenReaderChoice,
   shouldSuppressAutoSpeech,
@@ -21,6 +22,7 @@ import {
   type ScreenReaderChoice,
 } from './engines/screenReader';
 import {
+  clearApplicationStepper,
   appendActivity,
   loadActivities,
   loadApplicationDraft,
@@ -30,7 +32,7 @@ import {
   saveIntendedValues,
   savePreferences,
 } from './engines/preferencesStore';
-import { speakAloud, stopAllSpeechAndListening } from './engines/accessibilityEngine';
+import { speakAloud, speakAndWait, stopAllSpeechAndListening } from './engines/accessibilityEngine';
 import { askLocalGuidance, GUIDANCE_UNAVAILABLE } from './engines/guidanceService';
 import { getLanguageOption } from './engines/i18n';
 import { getPageCopy } from './engines/pageCopy';
@@ -45,23 +47,29 @@ import {
 } from './types/accessbridge';
 
 const AMHARIC_WELCOME =
-  "ሰላም! በምዝገባዎ ላይ ልረዳዎ መጥቻለሁ። ድምጽን በመጠቀም መቀጠል ይፈልጋሉ? ወይስ ያለ ድምጽ እራስዎ መጠቀም ይፈልጋሉ? ማቆም ከፈለጉ 'አቁም' ይበሉ።";
+  'ሰላም! ወደ AllWays እንኳን በደህና መጡ። ሥራ ለመፈለግና ማመልከቻ ለመሙላት ተደራሽ መመሪያ እሰጣለሁ።';
 
 export default function App() {
+  const initialScreenReaderActive = isScreenReaderActive();
+  const initialScreenReaderChoice = getScreenReaderChoice();
   const [preferences, setPreferences] = useState<AccessibilityPreferences>(() => loadPreferences());
   const [draft, setDraft] = useState<ApplicationDraft>(() => loadApplicationDraft());
   const [intended, setIntended] = useState<IntendedApplicationValues>(() => loadIntendedValues());
   const [, setActivities] = useState<ActivityLogItem[]>(() => loadActivities());
   const [currentView, setCurrentView] = useState<NavigationView>('landing');
-  const [welcomeOpen, setWelcomeOpen] = useState<boolean>(true);
+  const [welcomeOpen, setWelcomeOpen] = useState<boolean>(
+    !(initialScreenReaderActive && !initialScreenReaderChoice)
+  );
   const [isSpeaking, setIsSpeaking] = useState<boolean>(false);
   const [liveCaption, setLiveCaption] = useState<string>('');
-  const [startupModalOpen, setStartupModalOpen] = useState<boolean>(false);
+  const [startupModalOpen, setStartupModalOpen] = useState<boolean>(
+    initialScreenReaderActive && !initialScreenReaderChoice
+  );
   const [signedIn, setSignedIn] = useState<boolean>(() => sessionStorage.getItem('allways-signed-in') === '1');
   const [assistantListening, setAssistantListening] = useState<boolean>(false);
-  const [assistantMuted, setAssistantMuted] = useState<boolean>(false);
-  const [srChoice, setSrChoice] = useState<ScreenReaderChoice | null>(() => getScreenReaderChoice());
+  const [srChoice, setSrChoice] = useState<ScreenReaderChoice | null>(initialScreenReaderChoice);
   const [srNoticeDismissed, setSrNoticeDismissed] = useState<boolean>(() => isScreenReaderNoticeDismissed());
+  const [gazeSessionApproved, setGazeSessionApproved] = useState(false);
   const screenReaderActive = useScreenReaderActive();
   const mainRef = useRef<HTMLElement | null>(null);
 
@@ -84,6 +92,7 @@ export default function App() {
 
   const handleUpdatePreferences = useCallback(
     (patch: Partial<AccessibilityPreferences>) => {
+      if (patch.gazeControlEnabled === true) setGazeSessionApproved(true);
       setPreferences((prev) => {
         const next = { ...prev, ...patch };
         savePreferences(next);
@@ -129,6 +138,13 @@ export default function App() {
   const handleSpeakText = useCallback(
     (text: string, langOverride?: string) => {
       setLiveCaption(text);
+      if (
+        preferences.guidanceMode !== 'voice' ||
+        srChoice === 'reader' ||
+        (screenReaderActive && srChoice !== 'voice')
+      ) {
+        return;
+      }
       const activeLang = langOverride || getLanguageOption(preferences.language).speechLang;
       speakAloud(text, {
         rate: preferences.speechRate,
@@ -138,7 +154,7 @@ export default function App() {
         onCaption: (caption) => setLiveCaption(caption),
       });
     },
-    [preferences.speechRate, preferences.language]
+    [preferences.speechRate, preferences.language, preferences.guidanceMode, screenReaderActive, srChoice]
   );
 
   const handleStopSpeaking = useCallback(() => {
@@ -149,21 +165,54 @@ export default function App() {
 
   const handleStopAssistant = useCallback(() => {
     handleStopSpeaking();
-    setAssistantMuted(true);
-  }, [handleStopSpeaking]);
+    handleUpdatePreferences({ spokenGuidanceEnabled: false });
+  }, [handleStopSpeaking, handleUpdatePreferences]);
 
   const handleTurnAssistantOn = useCallback(() => {
-    setAssistantMuted(false);
-  }, []);
+    if (screenReaderActive && srChoice !== 'voice') {
+      setScreenReaderChoice('voice');
+      setSrChoice('voice');
+    }
+    handleUpdatePreferences({ guidanceMode: 'voice', spokenGuidanceEnabled: true });
+  }, [handleUpdatePreferences, screenReaderActive, srChoice]);
+
+  const handleWakePhrase = useCallback(
+    (transcript: string) => {
+      const command = transcript.toLowerCase().replace(/[።.!?]+$/g, '').trim();
+      if (command.includes('አቁም') || command === 'stop') {
+        handleStopAssistant();
+        return;
+      }
+      const wakePhrases = [
+        'continue',
+        'turn on',
+        'turn on voice assistant',
+        'የድምጽ ረዳቱን አብራ',
+        'ድምጽ ረዳቱን አብራ',
+        'ረዳቱን አብራ',
+        'ቀጥል',
+      ];
+      if (wakePhrases.some((phrase) => command === phrase || command.includes(phrase))) {
+        handleTurnAssistantOn();
+        return;
+      }
+      setLiveCaption(
+        preferences.language === 'am'
+          ? 'ረዳቱን ለማብራት “የድምጽ ረዳቱን አብራ” ወይም “ቀጥል” ይበሉ።'
+          : 'Say “turn on voice assistant” or “continue” to activate the guide.',
+      );
+    },
+    [handleStopAssistant, handleTurnAssistantOn, preferences.language],
+  );
 
   // Global Escape shortcut: immediately silence all speech and listening.
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') handleStopSpeaking();
+      if (event.key === 'Escape') handleStopAssistant();
     };
     window.addEventListener('keydown', onKeyDown);
     return () => window.removeEventListener('keydown', onKeyDown);
-  }, [handleStopSpeaking]);
+  }, [handleStopAssistant]);
 
   // Amharic-first welcome. Spoken only when no screen reader conflict is
   // detected, so we never talk over an active screen reader.
@@ -171,14 +220,49 @@ export default function App() {
   useEffect(() => {
     if (welcomeSpokenRef.current) return;
     if (!welcomeOpen || currentView !== 'landing') return;
+    if (preferences.guidanceMode !== 'voice' || !preferences.spokenGuidanceEnabled) return;
     if (shouldSuppressAutoSpeech()) return;
     welcomeSpokenRef.current = true;
+    let cancelled = false;
     const timer = window.setTimeout(() => {
       if (shouldSuppressAutoSpeech()) return;
-      handleSpeakText(AMHARIC_WELCOME, 'am-ET');
+      setLiveCaption(AMHARIC_WELCOME);
+      setIsSpeaking(true);
+      void speakAndWait(AMHARIC_WELCOME, {
+        rate: preferences.speechRate,
+        lang: 'am-ET',
+        onCaption: setLiveCaption,
+      }).then(() => {
+        if (cancelled) return;
+        setIsSpeaking(false);
+        setWelcomeOpen(false);
+        setStartupModalOpen(true);
+      }).catch((error: unknown) => {
+        if (cancelled) return;
+        setIsSpeaking(false);
+        setLiveCaption(error instanceof Error ? error.message : 'Welcome speech could not be played.');
+      });
     }, 900);
-    return () => window.clearTimeout(timer);
-  }, [welcomeOpen, currentView, handleSpeakText]);
+    return () => {
+      cancelled = true;
+      window.clearTimeout(timer);
+    };
+  }, [
+    welcomeOpen,
+    currentView,
+    preferences.guidanceMode,
+    preferences.spokenGuidanceEnabled,
+    preferences.speechRate,
+  ]);
+
+  useEffect(() => {
+    if (!screenReaderActive || srChoice !== null) return;
+    stopAllSpeechAndListening();
+    setIsSpeaking(false);
+    setAssistantListening(false);
+    setWelcomeOpen(false);
+    setStartupModalOpen(true);
+  }, [screenReaderActive, srChoice]);
 
   const handleCompleteStartupModal = useCallback(
     (destination: NavigationView) => {
@@ -220,6 +304,7 @@ export default function App() {
 
   const handleSelectJobForApplication = useCallback(
     (job: JobListing) => {
+      clearApplicationStepper();
       const nextDraft: ApplicationDraft = {
         ...draft,
         jobId: job.id,
@@ -275,16 +360,28 @@ export default function App() {
   const guidanceMode = preferences.guidanceMode;
   const spokenGuidanceActive =
     guidanceMode === 'voice' &&
-    !assistantMuted &&
-    (srChoice === 'voice' || !screenReaderActive);
-  const assistantVisible = guidanceMode === 'voice' && !welcomeOpen && !startupModalOpen;
-  const assistantState: AssistantState = assistantMuted
+    preferences.spokenGuidanceEnabled &&
+    (srChoice === 'voice' || (srChoice !== 'reader' && !screenReaderActive));
+  const startupVoiceGuideActive =
+    startupModalOpen && currentView === 'landing' && !welcomeOpen && spokenGuidanceActive;
+  const assistantVisible =
+    guidanceMode === 'voice' && !welcomeOpen && (!startupModalOpen || startupVoiceGuideActive);
+  const assistantState: AssistantState = !preferences.spokenGuidanceEnabled
     ? 'off'
     : isSpeaking
       ? 'speaking'
       : assistantListening
         ? 'listening'
         : 'off';
+  const voiceInputEnabled =
+    guidanceMode === 'voice' &&
+    srChoice !== 'reader' &&
+    (srChoice === 'voice' || !screenReaderActive);
+  const safePreferences: AccessibilityPreferences = {
+    ...preferences,
+    gazeControlEnabled: preferences.gazeControlEnabled && gazeSessionApproved,
+    voiceCommands: preferences.voiceCommands && voiceInputEnabled,
+  };
   const showScreenReaderNotice =
     screenReaderActive && !srNoticeDismissed && guidanceMode !== 'voice';
 
@@ -298,9 +395,10 @@ export default function App() {
     [handleUpdatePreferences],
   );
   const continueToSignIn = useCallback(() => {
+    handleUpdatePreferences({ languageSelected: true, startupModalCompleted: true });
     setStartupModalOpen(false);
     handleNavigate('login');
-  }, [handleNavigate]);
+  }, [handleNavigate, handleUpdatePreferences]);
   const resolveScreenReader = useCallback(
     (choice: ScreenReaderChoice) => {
       setScreenReaderChoice(choice);
@@ -388,7 +486,7 @@ export default function App() {
       <main id="main-content" ref={mainRef} tabIndex={-1} className="flex-1 scroll-mt-20 focus:outline-none">
         {currentView === 'onboarding' && (
           <OnboardingWizard
-            preferences={preferences}
+            preferences={safePreferences}
             onUpdatePreferences={handleUpdatePreferences}
             onComplete={() => {
               handleUpdatePreferences({
@@ -419,6 +517,7 @@ export default function App() {
             onNavigate={handleNavigate}
             onOpenPreferences={() => setStartupModalOpen(true)}
             language={preferences.language}
+            voiceInputEnabled={voiceInputEnabled}
           />
         )}
 
@@ -434,6 +533,8 @@ export default function App() {
             }}
             onNavigate={handleNavigate}
             onSpeakText={handleSpeakText}
+            onStopSpeaking={handleStopAssistant}
+            voiceInputEnabled={voiceInputEnabled}
           />
         )}
 
@@ -441,6 +542,7 @@ export default function App() {
           <LoginToApply
             purpose="account"
             language={preferences.language}
+            voiceInputEnabled={voiceInputEnabled}
             onBack={() => handleNavigate('landing')}
             onContinue={() => {
               sessionStorage.setItem('allways-signed-in', '1');
@@ -487,11 +589,15 @@ export default function App() {
       )}
 
       <BlindConversation
-        enabled={!welcomeOpen && spokenGuidanceActive}
+        enabled={
+          spokenGuidanceActive &&
+          (startupVoiceGuideActive ||
+            (!welcomeOpen && !startupModalOpen && preferences.startupModalCompleted))
+        }
         language={preferences.language}
         rate={preferences.speechRate}
         pageKey={currentView}
-        languageOpen={startupModalOpen}
+        languageOpen={startupVoiceGuideActive}
         onCaption={setLiveCaption}
         onGetStarted={openLanguage}
         onOpenDashboard={openDashboard}
@@ -500,6 +606,7 @@ export default function App() {
         onAskAi={handleAskAi}
         onStop={handleStopAssistant}
         onListeningChange={setAssistantListening}
+        onSpeakingChange={setIsSpeaking}
       />
 
       <AssistantStatusPill
@@ -509,6 +616,7 @@ export default function App() {
         visible={assistantVisible}
         onStop={handleStopAssistant}
         onTurnOn={handleTurnAssistantOn}
+        onWakePhrase={handleWakePhrase}
       />
 
       {showScreenReaderNotice && (
@@ -551,7 +659,7 @@ export default function App() {
 
       <StartupAccessibilityModal
         isOpen={startupModalOpen}
-        preferences={preferences}
+        preferences={safePreferences}
         isSpeaking={isSpeaking}
         screenReaderActive={screenReaderActive}
         screenReaderResolved={srChoice !== null}
@@ -573,7 +681,7 @@ export default function App() {
       )}
 
       <GazeControlManager
-        preferences={preferences}
+        preferences={safePreferences}
         onUpdatePreferences={handleUpdatePreferences}
       />
       <BrowserPermissionBanner />

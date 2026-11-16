@@ -7,6 +7,7 @@ import { VoiceInputButton } from './VoiceInputButton';
 
 interface LoginToApplyProps {
   language: PreferredLanguage;
+  voiceInputEnabled?: boolean;
   jobTitle?: string;
   employer?: string;
   purpose?: 'account' | 'job';
@@ -14,8 +15,38 @@ interface LoginToApplyProps {
   onContinue: () => void;
 }
 
+type LoginMode = 'login' | 'register';
+type LoginStage = 'choose' | 'form';
+
+interface SavedLoginProgress {
+  mode: LoginMode;
+  stage: LoginStage;
+  name: string;
+  email: string;
+}
+
+function loadLoginProgress(key: string): SavedLoginProgress {
+  const fallback: SavedLoginProgress = { mode: 'login', stage: 'choose', name: '', email: '' };
+  try {
+    const raw = window.localStorage.getItem(key);
+    if (!raw) return fallback;
+    const saved: unknown = JSON.parse(raw);
+    if (!saved || typeof saved !== 'object') return fallback;
+    const progress = saved as Partial<SavedLoginProgress>;
+    return {
+      mode: progress.mode === 'register' ? 'register' : 'login',
+      stage: progress.stage === 'form' ? 'form' : 'choose',
+      name: typeof progress.name === 'string' ? progress.name : '',
+      email: typeof progress.email === 'string' ? progress.email : '',
+    };
+  } catch {
+    return fallback;
+  }
+}
+
 export const LoginToApply: React.FC<LoginToApplyProps> = ({
   language,
+  voiceInputEnabled = true,
   jobTitle,
   employer,
   purpose = 'job',
@@ -23,10 +54,12 @@ export const LoginToApply: React.FC<LoginToApplyProps> = ({
   onContinue,
 }) => {
   const page = getPageCopy(language);
-  const [mode, setMode] = useState<'login' | 'register'>('login');
-  const [stage, setStage] = useState<'choose' | 'form'>('choose');
-  const [name, setName] = useState('');
-  const [email, setEmail] = useState('');
+  const storageKey = `allways_login_progress_${purpose}`;
+  const [savedProgress] = useState(() => loadLoginProgress(storageKey));
+  const [mode, setMode] = useState<LoginMode>(savedProgress.mode);
+  const [stage, setStage] = useState<LoginStage>(savedProgress.stage);
+  const [name, setName] = useState(savedProgress.name);
+  const [email, setEmail] = useState(savedProgress.email);
   const [password, setPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
@@ -34,6 +67,17 @@ export const LoginToApply: React.FC<LoginToApplyProps> = ({
   const [errorField, setErrorField] = useState('');
   const headingRef = useRef<HTMLHeadingElement>(null);
   const formHeadingRef = useRef<HTMLHeadingElement>(null);
+
+  useEffect(() => {
+    try {
+      window.localStorage.setItem(
+        storageKey,
+        JSON.stringify({ mode, stage, name, email } satisfies SavedLoginProgress),
+      );
+    } catch {
+      setError(language === 'am' ? 'መረጃውን በመሣሪያዎ ላይ ማስቀመጥ አልተቻለም።' : 'Could not save your progress on this device.');
+    }
+  }, [email, language, mode, name, stage, storageKey]);
 
   const showError = (field: string, message: string) => {
     setErrorField(field);
@@ -73,6 +117,11 @@ export const LoginToApply: React.FC<LoginToApplyProps> = ({
     if (mode === 'register' && password !== confirmPassword) {
       showError('confirm', page.passwordsMismatch);
       return;
+    }
+    try {
+      window.localStorage.removeItem(storageKey);
+    } catch {
+      // The form can continue even when browser storage is unavailable.
     }
     onContinue();
   };
@@ -124,6 +173,16 @@ export const LoginToApply: React.FC<LoginToApplyProps> = ({
             <ArrowLeft className="h-4 w-4" aria-hidden="true" />
             {purpose === 'account' ? page.back : page.backToJob}
           </button>
+          {error && (
+            <p
+              id="login-error"
+              role="alert"
+              data-voice-fix={errorField}
+              className="mt-4 rounded-xl bg-[#fdecec] px-4 py-3 text-sm font-semibold text-[#8a1f17]"
+            >
+              {error}
+            </p>
+          )}
           {stage === 'choose' ? (
             <div className="mt-5 grid gap-3">
               <h2 className="font-display text-3xl font-bold text-[#0e2a4a] high-contrast:text-white">
@@ -176,17 +235,6 @@ export const LoginToApply: React.FC<LoginToApplyProps> = ({
             {page.loginHint}
           </p>
 
-          {error && (
-            <p
-              id="login-error"
-              role="alert"
-              data-voice-fix={errorField}
-              className="mt-4 rounded-xl bg-[#fdecec] px-4 py-3 text-sm font-semibold text-[#8a1f17]"
-            >
-              {error}
-            </p>
-          )}
-
           {mode === 'register' && (
             <>
               <label
@@ -215,14 +263,16 @@ export const LoginToApply: React.FC<LoginToApplyProps> = ({
                 />
               </span>
               <div className="mt-2 flex justify-end">
-                <VoiceInputButton
-                  language={language}
-                  onTranscript={(transcript) => {
-                    setName(transcript);
-                    setError('');
-                    setErrorField('');
-                  }}
-                />
+                {voiceInputEnabled && (
+                  <VoiceInputButton
+                    language={language}
+                    onTranscript={(transcript) => {
+                      setName(transcript);
+                      setError('');
+                      setErrorField('');
+                    }}
+                  />
+                )}
               </div>
             </>
           )}
@@ -238,9 +288,16 @@ export const LoginToApply: React.FC<LoginToApplyProps> = ({
             <input
               id="login-email"
               type="email"
+              lang="en"
+              dir="ltr"
+              inputMode="email"
+              autoCapitalize="none"
+              autoCorrect="off"
+              spellCheck={false}
               required
               aria-required="true"
               autoComplete="email"
+              style={{ direction: 'ltr', textAlign: 'left' }}
               aria-invalid={errorField === 'email'}
               aria-describedby={errorField === 'email' ? 'login-error' : undefined}
               value={email}
@@ -253,14 +310,16 @@ export const LoginToApply: React.FC<LoginToApplyProps> = ({
             />
           </span>
           <div className="mt-2 flex justify-end">
-            <VoiceInputButton
-              language={language}
-              onTranscript={(transcript) => {
-                setEmail(normalizeSpokenEmail(transcript));
-                setError('');
-                setErrorField('');
-              }}
-            />
+            {voiceInputEnabled && (
+              <VoiceInputButton
+                language={language}
+                onTranscript={(transcript) => {
+                  setEmail(normalizeSpokenEmail(transcript));
+                  setError('');
+                  setErrorField('');
+                }}
+              />
+            )}
           </div>
 
           <label
@@ -274,9 +333,16 @@ export const LoginToApply: React.FC<LoginToApplyProps> = ({
             <input
               id="login-password"
               type={showPassword ? 'text' : 'password'}
+              lang="en"
+              dir="ltr"
+              inputMode="text"
+              autoCapitalize="none"
+              autoCorrect="off"
+              spellCheck={false}
               required
               aria-required="true"
               autoComplete={mode === 'register' ? 'new-password' : 'current-password'}
+              style={{ direction: 'ltr', textAlign: 'left' }}
               aria-invalid={errorField === 'password'}
               aria-describedby={errorField === 'password' ? 'login-error' : undefined}
               value={password}
@@ -298,14 +364,16 @@ export const LoginToApply: React.FC<LoginToApplyProps> = ({
             </button>
           </span>
           <div className="mt-2 flex justify-end">
-            <VoiceInputButton
-              language={language}
-              onTranscript={(transcript) => {
-                setPassword(transcript);
-                setError('');
-                setErrorField('');
-              }}
-            />
+            {voiceInputEnabled && (
+              <VoiceInputButton
+                language={language}
+                onTranscript={(transcript) => {
+                  setPassword(transcript);
+                  setError('');
+                  setErrorField('');
+                }}
+              />
+            )}
           </div>
 
           {mode === 'register' && (
@@ -321,9 +389,16 @@ export const LoginToApply: React.FC<LoginToApplyProps> = ({
                 <input
                   id="login-confirm"
                   type={showPassword ? 'text' : 'password'}
+                  lang="en"
+                  dir="ltr"
+                  inputMode="text"
+                  autoCapitalize="none"
+                  autoCorrect="off"
+                  spellCheck={false}
                   required
                   aria-required="true"
                   autoComplete="new-password"
+                  style={{ direction: 'ltr', textAlign: 'left' }}
                   aria-invalid={errorField === 'confirm'}
                   aria-describedby={errorField === 'confirm' ? 'login-error' : undefined}
                   value={confirmPassword}
@@ -336,14 +411,16 @@ export const LoginToApply: React.FC<LoginToApplyProps> = ({
                 />
               </span>
               <div className="mt-2 flex justify-end">
-                <VoiceInputButton
-                  language={language}
-                  onTranscript={(transcript) => {
-                    setConfirmPassword(transcript);
-                    setError('');
-                    setErrorField('');
-                  }}
-                />
+                {voiceInputEnabled && (
+                  <VoiceInputButton
+                    language={language}
+                    onTranscript={(transcript) => {
+                      setConfirmPassword(transcript);
+                      setError('');
+                      setErrorField('');
+                    }}
+                  />
+                )}
               </div>
             </>
           )}

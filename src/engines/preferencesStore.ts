@@ -10,7 +10,7 @@ const KEYS = {
   DRAFT: 'accessbridge_application_draft_v1',
   INTENDED: 'accessbridge_intended_values_v1',
   ACTIVITIES: 'accessbridge_activities_v1',
-  STEPPER: 'accessbridge_application_stepper_v1',
+  STEPPER: 'accessbridge_application_stepper_v2',
 } as const;
 
 export const DEFAULT_PREFERENCES: AccessibilityPreferences = {
@@ -99,12 +99,14 @@ export interface ApplicationStepperState {
   answers: Record<string, string>;
   step: number;
   agreed: boolean;
+  submitted: boolean;
 }
 
 export const DEFAULT_APPLICATION_STEPPER: ApplicationStepperState = {
   answers: {},
   step: 1,
-  agreed: true,
+  agreed: false,
+  submitted: false,
 };
 
 function safeRead<T>(key: string, fallback: T): T {
@@ -136,7 +138,7 @@ export function loadPreferences(): AccessibilityPreferences {
       : DEFAULT_PREFERENCES.guidanceMode;
   return {
     ...loaded,
-    language: loaded.language === 'am' ? 'am' : 'en',
+    language: loaded.languageSelected && loaded.language === 'en' ? 'en' : 'am',
     colorMode: loaded.colorMode === 'dark' ? 'dark' : 'light',
     guidanceMode,
   };
@@ -167,7 +169,12 @@ export function loadApplicationStepper(): ApplicationStepperState {
   const step = typeof loaded.step === 'number' ? Math.min(7, Math.max(1, Math.round(loaded.step))) : 1;
   const answers =
     loaded.answers && typeof loaded.answers === 'object' ? (loaded.answers as Record<string, string>) : {};
-  return { answers, step, agreed: loaded.agreed !== false };
+  return {
+    answers,
+    step,
+    agreed: loaded.agreed === true,
+    submitted: loaded.submitted === true,
+  };
 }
 
 export function saveApplicationStepper(state: ApplicationStepperState): void {

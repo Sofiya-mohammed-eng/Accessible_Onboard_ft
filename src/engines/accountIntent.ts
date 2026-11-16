@@ -86,7 +86,29 @@ function findCue(text: string, cues: string[]) {
 
 function stripTail(value: string) {
   let next = value.replace(/[።.!?]+$/g, '').trim();
-  const tails = ['ነው', 'ናት', 'ናቸው', 'ግባ', 'ተመዝገብ', 'አዎ', 'አዎን', 'እሺ', 'and', 'እና', 'sign in', 'register', 'please', 'እባክህ', 'እባክሽ'];
+  const tails = [
+    'ነው',
+    'ናት',
+    'ናቸው',
+    'ግባ',
+    'ተመዝገብ',
+    'አዎ',
+    'አዎን',
+    'እሺ',
+    'ቀጥል',
+    'ቀጣይ',
+    'አስገባ',
+    'continue',
+    'next',
+    'enter',
+    'and',
+    'እና',
+    'sign in',
+    'register',
+    'please',
+    'እባክህ',
+    'እባክሽ',
+  ];
   let changed = true;
   while (changed) {
     changed = false;

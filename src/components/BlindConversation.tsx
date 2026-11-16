@@ -21,6 +21,7 @@ interface BlindConversationProps {
   onAskAi: (question: string) => void;
   onStop: () => void;
   onListeningChange: (listening: boolean) => void;
+  onSpeakingChange: (speaking: boolean) => void;
 }
 
 const GET_STARTED = ['get started', 'get start', 'lets start', "let's start", 'start', 'ጀምር', 'ጀምሩ', 'ጀመር', 'ጀምሪ', 'እንጀምር', 'ጀምረን', 'ጀምርልኝ', 'እጀምር', 'ተጀመር', 'jemer', 'jemir', 'jemr', 'gemer', 'gemir', 'jemeru'];
@@ -64,7 +65,8 @@ const CORRECTION = [
   'እሞክር',
   'ቀይር',
 ];
-const NEXT = ['continue', 'next', 'submit', 'ቀጥል', 'ቀጽል', 'ቀጣይ', 'ቀጥይ', 'እንቀጥል', 'ቀጥለን', 'ቀጠል', 'ላክ', 'ስላክ', 'ገምግም', 'review', 'ketl', 'ketel', 'kettel', 'ketel'];
+const NEXT = ['continue', 'next', 'enter', 'submit', 'ቀጥል', 'ቀጽል', 'ቀጣይ', 'ቀጥይ', 'እንቀጥል', 'ቀጥለን', 'ቀጠል', 'አስገባ', 'ላክ', 'ስላክ', 'ገምግም', 'review', 'ketl', 'ketel', 'kettel', 'ketel'];
+const CONTINUE = ['continue', 'next', 'enter', 'ቀጥል', 'ቀጣይ', 'አስገባ'];
 const FIND_JOBS = ['find jobs', 'find job', 'jobs', 'ስራ ፈልግ', 'ሥራ'];
 const HELP = [
   'ask ai',
@@ -106,6 +108,11 @@ function wantsNext(text: string) {
   const lower = text.toLowerCase();
   if (!lower.trim() || wantsCorrection(lower)) return false;
   return includesAny(lower, NEXT) || isYes(lower) || /ቀጥ|ቀጽ|ketl|ketel|next|continue/.test(lower);
+}
+
+function wantsContinue(text: string) {
+  const normalized = text.toLowerCase().replace(/[።.!?]+$/g, '').trim();
+  return CONTINUE.some((phrase) => normalized === phrase || normalized.endsWith(` ${phrase}`));
 }
 
 function isYes(text: string) {
@@ -193,6 +200,7 @@ export function BlindConversation({
   onAskAi,
   onStop,
   onListeningChange,
+  onSpeakingChange,
 }: BlindConversationProps) {
   const [promptKey, setPromptKey] = useState(pageKey);
   const captionRef = useRef(onCaption);
@@ -203,11 +211,13 @@ export function BlindConversation({
   const onAskAiRef = useRef(onAskAi);
   const onStopRef = useRef(onStop);
   const onListeningChangeRef = useRef(onListeningChange);
+  const onSpeakingChangeRef = useRef(onSpeakingChange);
   captionRef.current = onCaption;
   languageRef.current = language;
   onAskAiRef.current = onAskAi;
   onStopRef.current = onStop;
   onListeningChangeRef.current = onListeningChange;
+  onSpeakingChangeRef.current = onSpeakingChange;
 
   useEffect(() => {
     if (pageKey !== 'apply') {
@@ -238,7 +248,9 @@ export function BlindConversation({
 
     const say = (text: string, lang?: string) => {
       captionRef.current(text);
-      return speakAndWait(text, { lang: lang || speechLang(), rate, onCaption: captionRef.current });
+      onSpeakingChangeRef.current(true);
+      return speakAndWait(text, { lang: lang || speechLang(), rate, onCaption: captionRef.current })
+        .finally(() => onSpeakingChangeRef.current(false));
     };
 
     const hear = async (lang?: string) => {
@@ -248,6 +260,15 @@ export function BlindConversation({
         let transcript = '';
         try {
           transcript = await listenOnce(code);
+        } catch (error) {
+          captionRef.current(
+            error instanceof Error
+              ? error.message
+              : amharic()
+                ? 'ማይክራፎኑን መጠቀም አልተቻለም።'
+                : 'Could not use the microphone.',
+          );
+          return '';
         } finally {
           onListeningChangeRef.current(false);
         }
@@ -260,6 +281,7 @@ export function BlindConversation({
         captionRef.current(transcript);
         const intent = keywordIntent(transcript, currentLanguage());
         if (intent.type === 'stop') {
+          cancelled = true;
           onStopRef.current();
           return '';
         }
@@ -503,12 +525,17 @@ export function BlindConversation({
         let lastTopic: 'email' | 'password' | 'name' | '' = '';
         let pending: { kind: 'email' | 'password' | 'name'; value: string } | null = null;
         const confirmLine = (kind: 'email' | 'password' | 'name', value: string) => {
+          if (kind === 'password') {
+            return amharic()
+              ? 'የይለፍ ቃል ተቀብያለሁ። ትክክል ከሆነ ቀጥል ይበሉ። ካልሆነ እንደገና ይናገሩ።'
+              : 'Password received. Say continue if it is correct, or say it again to replace it.';
+          }
           const spoken = kind === 'email' ? speakableEmail(value, amharic()) : value;
           if (amharic()) {
-            const lead = kind === 'email' ? 'ኢሜይልዎን ሰማሁ' : kind === 'password' ? 'የይለፍ ቃልዎን ሰማሁ' : 'ስምዎን ሰማሁ';
+            const lead = kind === 'email' ? 'ኢሜይልዎን ሰማሁ' : 'ስምዎን ሰማሁ';
             return `${lead}። ${spoken}. ትክክል ከሆነ አዎ ይበሉ። ካልሆነ ትክክል አይደለም ይበሉ።`;
           }
-          const lead = kind === 'email' ? 'I heard your email' : kind === 'password' ? 'I heard your password' : 'I heard your name';
+          const lead = kind === 'email' ? 'I heard your email' : 'I heard your name';
           return `${lead}, ${spoken}. Say yes if that is right. If not, say it is not correct.`;
         };
         const savePending = () => {
@@ -539,6 +566,30 @@ export function BlindConversation({
           if (passwords[1] && !passwords[1].value.trim()) return amharic() ? 'ተመሳሳይ የይለፍ ቃል ከሆነ አዎ ይበሉ።' : 'If the password is the same, say yes.';
           return amharic() ? 'ሁለቱም ዝግጁ ናቸው። ለመግባት ግባ ይበሉ። ለማስተካከል ትክክል አይደለም ይበሉ።' : 'Both are ready. Say sign in. If something is wrong, say it is not correct.';
         };
+        const advanceWhenReady = async () => {
+          const email = emailInput();
+          const passwords = passwordInputs();
+          const name = nameInput();
+          const ready =
+            Boolean(email && emailLooksValid(email.value)) &&
+            Boolean(passwords[0]?.value.trim()) &&
+            (!register || !name || Boolean(name.value.trim())) &&
+            (!passwords[1] || Boolean(passwords[1].value.trim())) &&
+            !pending;
+          if (!ready) return false;
+          await say(amharic()
+            ? 'እሺ፣ ወደ ቀጣዩ ደረጃ እሸጋገራለሁ።'
+            : 'Okay, moving to the next step.');
+          formRoot.querySelector<HTMLButtonElement>('button[type="submit"]')?.click();
+          const fix = await readProblem(formRoot);
+          if (!fix || cancelled) return true;
+          if (fix === 'email' && email) setFieldValue(email, '');
+          if (fix === 'password' || fix === 'confirm') passwords.forEach((field) => setFieldValue(field, ''));
+          await say(amharic()
+            ? 'ያ አልተሳካም። ኢሜይሉን ወይም የይለፍ ቃሉን እንደገና ይናገሩ።'
+            : 'That did not work. Tell me the email or password again.');
+          return false;
+        };
         while (!cancelled) {
           const heard = carry || await hear();
           carry = '';
@@ -548,6 +599,7 @@ export function BlindConversation({
             continue;
           }
           const intent = interpretAccount(heard, phrases);
+          const continueRequested = wantsContinue(heard);
           if (maybePassword) {
             const offered = maybePassword;
             maybePassword = '';
@@ -555,9 +607,15 @@ export function BlindConversation({
               const fields = passwordInputs();
               if (fields[0]) setFieldValue(fields[0], offered);
               const emailReadyNow = Boolean(emailInput() && emailLooksValid(emailInput()?.value || ''));
-              await say(amharic()
-                ? `እሺ። የይለፍ ቃልዎን አስቀምጫለሁ። ${offered}. ${emailReadyNow ? 'ለመግባት ግባ ይበሉ።' : 'ኢሜይልዎን ገና እየጠበቅኩ ነው።'}`
-                : `Okay. I saved your password, ${offered}. ${emailReadyNow ? 'Say sign in when you are ready.' : 'I still need your email.'}`);
+              if (continueRequested) {
+                if (await advanceWhenReady()) return;
+                if (cancelled) return;
+                await say(nextNeed());
+              } else {
+                await say(amharic()
+                  ? `እሺ። የይለፍ ቃልዎን አስቀምጫለሁ። ${emailReadyNow ? 'ለመግባት ግባ ይበሉ።' : 'ኢሜይልዎን ገና እየጠበቅኩ ነው።'}`
+                  : `Okay. I saved your password. ${emailReadyNow ? 'Say sign in when you are ready.' : 'I still need your email.'}`);
+              }
               continue;
             }
             if (!intent.email && !intent.password && !intent.correction && !intent.clearEmail && !intent.clearPassword) {
@@ -601,7 +659,21 @@ export function BlindConversation({
             const kind = intent.email ? 'email' : intent.password ? 'password' : 'name';
             const value = intent.email || intent.password || intent.name;
             pending = { kind, value };
-            await say(confirmLine(kind, value));
+            if (continueRequested) {
+              savePending();
+              if (await advanceWhenReady()) return;
+              if (cancelled) return;
+              await say(nextNeed());
+            } else {
+              await say(confirmLine(kind, value));
+            }
+            continue;
+          }
+          if (pending && continueRequested) {
+            savePending();
+            if (await advanceWhenReady()) return;
+            if (cancelled) return;
+            await say(nextNeed());
             continue;
           }
           if (pending && intent.yes) {
@@ -887,6 +959,7 @@ export function BlindConversation({
       guideActiveRef.current = false;
       window.clearTimeout(timer);
       onListeningChangeRef.current(false);
+      onSpeakingChangeRef.current(false);
       stopSpeakingAloud();
     };
   }, [

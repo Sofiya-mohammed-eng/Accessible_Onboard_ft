@@ -14,6 +14,7 @@ interface JobDiscoveryViewProps {
   onNavigate: (view: NavigationView) => void;
   onOpenPreferences: () => void;
   language: PreferredLanguage;
+  voiceInputEnabled?: boolean;
 }
 
 type Schedule = 'Full-time' | 'Part-time';
@@ -131,6 +132,7 @@ export const JobDiscoveryView: React.FC<JobDiscoveryViewProps> = ({
   onNavigate,
   onOpenPreferences,
   language,
+  voiceInputEnabled = true,
 }) => {
   const page = getPageCopy(language);
   const [schedule, setSchedule] = useState<'All' | Schedule>('All');
@@ -179,6 +181,7 @@ export const JobDiscoveryView: React.FC<JobDiscoveryViewProps> = ({
     return (
       <LoginToApply
         language={language}
+        voiceInputEnabled={voiceInputEnabled}
         jobTitle={loginJob.title}
         employer={loginJob.organization}
         onBack={() => setLoginJob(null)}
@@ -365,14 +368,16 @@ export const JobDiscoveryView: React.FC<JobDiscoveryViewProps> = ({
               placeholder={page.searchPlaceholder}
               className="min-w-0 flex-1 bg-transparent px-2 py-2.5 text-sm text-[#0e2a4a] placeholder:text-[#8aa093] high-contrast:text-white"
             />
-            <VoiceInputButton
-              language={language}
-              className="shrink-0"
-              onTranscript={(transcript) => {
-                setQuery(transcript);
-                setSearchNotice('');
-              }}
-            />
+            {voiceInputEnabled && (
+              <VoiceInputButton
+                language={language}
+                className="shrink-0"
+                onTranscript={(transcript) => {
+                  setQuery(transcript);
+                  setSearchNotice('');
+                }}
+              />
+            )}
             <button
               type="submit"
               className="rounded-xl bg-[#1a73e8] px-5 py-2.5 text-sm font-semibold text-white hover:bg-[#1259b8] high-contrast:bg-yellow-300 high-contrast:text-black"

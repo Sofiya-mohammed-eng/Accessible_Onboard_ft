@@ -25,12 +25,17 @@ function addAt(local: string, domain: string) {
 }
 
 export function emailLooksValid(value: string) {
-  const [name, domain] = value.split('@');
+  const parts = value.split('@');
+  if (parts.length !== 2) return false;
+  const [name, domain] = parts;
   return Boolean(name && domain?.includes('.') && !value.includes(' '));
 }
 
 export function normalizeSpokenEmail(value: string) {
-  let next = value.trim().toLowerCase();
+  const trimmed = value.trim();
+  if (trimmed.includes('@')) return trimmed;
+
+  let next = trimmed.toLowerCase();
   next = next
     .replace(/ጂሜል|ጅሜል|ጂሜይል|ጅሜይል/g, ' gmail ')
     .replace(/ያሁ/g, ' yahoo ')

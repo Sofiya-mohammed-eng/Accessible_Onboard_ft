@@ -68,6 +68,7 @@ export function detectSpeechSupport(): SpeechSupportInfo {
 let speechToken = 0;
 let currentAudio: HTMLAudioElement | null = null;
 const speechWaiters = new Set<() => void>();
+const recognitionWaiters = new Set<() => void>();
 
 function voicesFor(lang: string): SpeechSynthesisVoice | null {
   if (typeof window === 'undefined' || !('speechSynthesis' in window)) return null;
@@ -149,9 +150,9 @@ function stopActiveRecognition(): void {
 
 function stopActiveRecording(): void {
   const stop = stopRecording;
+  captureGeneration += 1;
   if (!stop) return;
   stopRecording = null;
-  captureGeneration += 1;
   try {
     stop();
   } catch {
@@ -367,6 +368,7 @@ export function speakAloud(
 
 let speechChain: Promise<void> = Promise.resolve();
 let activeSpeech = '';
+let speechGeneration = 0;
 
 export function speakAndWait(
   text: string,
@@ -375,8 +377,14 @@ export function speakAndWait(
   const spoken = text.trim();
   if (!spoken) return Promise.resolve();
   if (spoken === activeSpeech) return speechChain;
+  const generation = speechGeneration;
   activeSpeech = spoken;
   const run = speechChain.then(() => new Promise<void>((resolve) => {
+    if (generation !== speechGeneration) {
+      if (activeSpeech === spoken) activeSpeech = '';
+      resolve();
+      return;
+    }
     const finish = () => {
       if (activeSpeech === spoken) activeSpeech = '';
       speechWaiters.delete(finish);
@@ -400,9 +408,12 @@ export function speakAndWait(
  */
 export function stopAllSpeechAndListening(): void {
   speechToken += 1;
+  speechGeneration += 1;
   activeSpeech = '';
   stopActiveRecording();
   stopActiveRecognition();
+  recognitionWaiters.forEach((cancel) => cancel());
+  recognitionWaiters.clear();
   cancelSpeechOutput();
   speechWaiters.forEach((finish) => finish());
   speechWaiters.clear();
@@ -452,7 +463,7 @@ if (typeof window !== 'undefined') {
   window.addEventListener('keydown', unlockListening);
 }
 
-function recordSpeechPcm(maxMs: number): Promise<ArrayBuffer | null> {
+function recordSpeechPcm(maxMs: number, generation: number): Promise<ArrayBuffer | null> {
   return new Promise((resolve) => {
     void (async () => {
       let stream: MediaStream;
@@ -464,8 +475,18 @@ function recordSpeechPcm(maxMs: number): Promise<ArrayBuffer | null> {
         resolve(null);
         return;
       }
+      if (generation !== captureGeneration) {
+        stream.getTracks().forEach((track) => track.stop());
+        resolve(null);
+        return;
+      }
       const context = listeningContext();
       await context.resume().catch(() => undefined);
+      if (generation !== captureGeneration) {
+        stream.getTracks().forEach((track) => track.stop());
+        resolve(null);
+        return;
+      }
       const source = context.createMediaStreamSource(stream);
       const processor = context.createScriptProcessor(4096, 1, 1);
       const mute = context.createGain();
@@ -526,7 +547,7 @@ async function listenAmharic(timeoutMs: number): Promise<string> {
   await waitForQuiet(450);
   for (let attempt = 0; attempt < 2; attempt += 1) {
     if (generation !== captureGeneration) return '';
-    const audio = await recordSpeechPcm(Math.min(timeoutMs, 10000));
+    const audio = await recordSpeechPcm(Math.min(timeoutMs, 10000), generation);
     if (generation !== captureGeneration) return '';
     if (!audio || audio.byteLength < 3200) continue;
     try {
@@ -545,33 +566,54 @@ function waitForQuiet(ms: number) {
 }
 
 export function listenOnce(lang: string, timeoutMs = 12000): Promise<string> {
-  if (lang.toLowerCase().startsWith('am')) return listenAmharic(timeoutMs);
-  return new Promise((resolve) => {
-    window.setTimeout(() => {
+  if (lang.toLowerCase().startsWith('am')) {
+    return new Promise((resolve, reject) => {
       let settled = false;
-      let restarts = 0;
-      const finish = (value: string) => {
+      const finish = (transcript: string) => {
         if (settled) return;
         settled = true;
-        window.clearTimeout(timer);
-        resolve(value);
+        recognitionWaiters.delete(cancel);
+        resolve(transcript);
       };
-      const timer = window.setTimeout(() => {
-        try {
-          activeRecognition?.stop();
-        } catch {
-          // Ignore
-        }
-        finish('');
-      }, timeoutMs);
+      const cancel = () => finish('');
+      recognitionWaiters.add(cancel);
+      void listenAmharic(timeoutMs).then(finish, (error: unknown) => {
+        if (settled) return;
+        settled = true;
+        recognitionWaiters.delete(cancel);
+        reject(error);
+      });
+    });
+  }
+  return new Promise((resolve) => {
+    let settled = false;
+    let restarts = 0;
+    let startupTimer = 0;
+    let timeoutTimer = 0;
+    let restartTimer = 0;
+    let session: VoiceInputSession | null = null;
+    const finish = (value: string) => {
+      if (settled) return;
+      settled = true;
+      window.clearTimeout(startupTimer);
+      window.clearTimeout(timeoutTimer);
+      window.clearTimeout(restartTimer);
+      recognitionWaiters.delete(cancel);
+      session?.stop();
+      resolve(value);
+    };
+    const cancel = () => finish('');
+    recognitionWaiters.add(cancel);
+    timeoutTimer = window.setTimeout(() => finish(''), timeoutMs);
+    startupTimer = window.setTimeout(() => {
+      if (settled) return;
       let latest = '';
-      const session = startVoiceDictation({
+      session = startVoiceDictation({
         lang,
         onTranscript: (transcript, isFinal) => {
           latest = transcript.trim();
           if (!isFinal || !latest) return;
           finish(latest);
-          session?.stop();
         },
         onError: (message) => {
           if (/no-speech|aborted/i.test(message)) return;
@@ -593,7 +635,7 @@ export function listenOnce(lang: string, timeoutMs = 12000): Promise<string> {
             finish('');
             return;
           }
-          window.setTimeout(() => {
+          restartTimer = window.setTimeout(() => {
             if (settled) return;
             try {
               session?.start();

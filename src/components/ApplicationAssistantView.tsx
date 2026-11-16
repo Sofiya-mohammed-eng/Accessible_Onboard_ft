@@ -2,7 +2,6 @@ import React, { useEffect, useRef, useState } from 'react';
 import { ArrowLeft, ArrowRight, Check, Volume2 } from 'lucide-react';
 import { getPageCopy } from '../engines/pageCopy';
 import {
-  clearApplicationStepper,
   loadApplicationStepper,
   saveApplicationStepper,
 } from '../engines/preferencesStore';
@@ -20,6 +19,8 @@ interface ApplicationAssistantViewProps {
   onSaveDraft: () => void;
   onNavigate: (view: NavigationView) => void;
   onSpeakText: (text: string) => void;
+  onStopSpeaking: () => void;
+  voiceInputEnabled?: boolean;
 }
 
 type AnswerKey = 'name' | 'phone' | 'education' | 'experience' | 'skills' | 'cv';
@@ -27,10 +28,10 @@ type AnswerKey = 'name' | 'phone' | 'education' | 'experience' | 'skills' | 'cv'
 const SAMPLE_ANSWERS: Record<AnswerKey, string> = {
   name: '',
   phone: '',
-  education: 'degree',
-  experience: 'yes',
-  skills: 'fcdx',
-  cv: 'Wix Website Design PROJECT PROPOSAL.docx',
+  education: '',
+  experience: '',
+  skills: '',
+  cv: '',
 };
 
 const QUESTION_STEPS: Array<{ key: AnswerKey; type: 'text' | 'tel' }> = [
@@ -55,6 +56,8 @@ export const ApplicationAssistantView: React.FC<ApplicationAssistantViewProps> =
   preferences,
   onNavigate,
   onSpeakText,
+  onStopSpeaking,
+  voiceInputEnabled,
 }) => {
   const page = getPageCopy(preferences.language);
   const questionTitles: Record<AnswerKey, string> = {
@@ -73,11 +76,12 @@ export const ApplicationAssistantView: React.FC<ApplicationAssistantViewProps> =
     ...SAMPLE_ANSWERS,
     ...(savedStepper.answers as Partial<Record<AnswerKey, string>>),
   }));
-  const [submitted, setSubmitted] = useState(false);
+  const [submitted, setSubmitted] = useState(savedStepper.submitted);
   const [agreed, setAgreed] = useState(savedStepper.agreed);
   const [formError, setFormError] = useState('');
   const [speaking, setSpeaking] = useState(false);
   const headingRef = useRef<HTMLHeadingElement>(null);
+  const voiceEnabled = voiceInputEnabled ?? preferences.guidanceMode === 'voice';
 
   useEffect(() => {
     headingRef.current?.focus();
@@ -85,8 +89,8 @@ export const ApplicationAssistantView: React.FC<ApplicationAssistantViewProps> =
   }, [step, submitted]);
 
   useEffect(() => {
-    saveApplicationStepper({ answers, step, agreed });
-  }, [answers, step, agreed]);
+    saveApplicationStepper({ answers, step, agreed, submitted });
+  }, [answers, step, agreed, submitted]);
 
   const setAnswer = (key: AnswerKey, value: string) => {
     setFormError('');
@@ -118,7 +122,7 @@ export const ApplicationAssistantView: React.FC<ApplicationAssistantViewProps> =
 
   const readAloud = (text: string) => {
     if (speaking) {
-      window.speechSynthesis?.cancel();
+      onStopSpeaking();
       setSpeaking(false);
       return;
     }
@@ -260,14 +264,16 @@ export const ApplicationAssistantView: React.FC<ApplicationAssistantViewProps> =
             >
               {page.browseMore}
             </button>
-            <button
-              type="button"
-              onClick={() => readAloud(summary)}
-              className="inline-flex items-center gap-2 rounded-xl px-4 py-3 text-sm font-bold text-[#0e2a4a] hover:bg-[#d7ebff] high-contrast:text-white"
-            >
-              <Volume2 className="h-4 w-4" aria-hidden="true" />
-              {speaking ? page.stopReading : page.readConfirmation}
-            </button>
+            {voiceEnabled && (
+              <button
+                type="button"
+                onClick={() => readAloud(summary)}
+                className="inline-flex items-center gap-2 rounded-xl px-4 py-3 text-sm font-bold text-[#0e2a4a] hover:bg-[#d7ebff] high-contrast:text-white"
+              >
+                <Volume2 className="h-4 w-4" aria-hidden="true" />
+                {speaking ? page.stopReading : page.readConfirmation}
+              </button>
+            )}
           </div>
           <p
             data-voice-close
@@ -322,14 +328,16 @@ export const ApplicationAssistantView: React.FC<ApplicationAssistantViewProps> =
             <p className="mt-3 text-slate-600 high-contrast:text-slate-200">
               {page.briefHint}
             </p>
-            <button
-              type="button"
-              onClick={() => readAloud(questionTitles[question.key])}
-              className="mt-4 inline-flex items-center gap-2 rounded-xl px-3 py-2 text-sm font-bold text-[#0e2a4a] hover:bg-[#d7ebff] high-contrast:text-white"
-            >
-              <Volume2 className="h-4 w-4" aria-hidden="true" />
-              {speaking ? page.stopReading : page.readAloud}
-            </button>
+            {voiceEnabled && (
+              <button
+                type="button"
+                onClick={() => readAloud(questionTitles[question.key])}
+                className="mt-4 inline-flex items-center gap-2 rounded-xl px-3 py-2 text-sm font-bold text-[#0e2a4a] hover:bg-[#d7ebff] high-contrast:text-white"
+              >
+                <Volume2 className="h-4 w-4" aria-hidden="true" />
+                {speaking ? page.stopReading : page.readAloud}
+              </button>
+            )}
             <label className="mt-6 block text-sm font-semibold text-[#0e2a4a] high-contrast:text-white">
               {page.yourAnswer}
               <input
@@ -344,10 +352,12 @@ export const ApplicationAssistantView: React.FC<ApplicationAssistantViewProps> =
               />
             </label>
             <div className="mt-3">
-              <VoiceInputButton
-                language={preferences.language}
-                onTranscript={(transcript) => setAnswer(question.key, transcript)}
-              />
+              {voiceEnabled && (
+                <VoiceInputButton
+                  language={preferences.language}
+                  onTranscript={(transcript) => setAnswer(question.key, transcript)}
+                />
+              )}
             </div>
           </>
         )}
@@ -488,10 +498,7 @@ export const ApplicationAssistantView: React.FC<ApplicationAssistantViewProps> =
               type="button"
               data-voice="submit"
               disabled={!agreed}
-              onClick={() => {
-                clearApplicationStepper();
-                setSubmitted(true);
-              }}
+              onClick={() => setSubmitted(true)}
               className="inline-flex items-center gap-2 rounded-xl bg-[#1a73e8] px-4 py-3 text-sm font-bold text-white hover:bg-[#0d4f9e] disabled:opacity-50"
             >
               {page.submitApplication}

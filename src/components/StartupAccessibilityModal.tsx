@@ -1,10 +1,9 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { ArrowRight, Check, Eye, Globe, Type, Volume2, VolumeX, X } from 'lucide-react';
+import { ArrowRight, Check, Eye, EyeOff, Globe, Type, Volume2, VolumeX, X } from 'lucide-react';
 import { SUPPORTED_LANGUAGES, getLocalizedCopy } from '../engines/i18n';
 import { getPageCopy } from '../engines/pageCopy';
 import {
   AccessibilityPreferences,
-  GuidanceMode,
   NavigationView,
   PreferredLanguage,
 } from '../types/accessbridge';
@@ -27,27 +26,33 @@ interface StartupAccessibilityModalProps {
   canCloseDirectly: boolean;
 }
 
-type Step = 'sr' | 'language' | 'guidance' | 'motor';
+type Step = 'sr' | 'language';
+type InteractionProfile = 'voice' | 'visual' | 'motor' | 'standard';
 
-const GUIDANCE_OPTIONS: Array<{
-  mode: GuidanceMode;
+const PROFILE_OPTIONS: Array<{
+  id: InteractionProfile;
   en: { title: string; body: string };
   am: { title: string; body: string };
 }> = [
   {
-    mode: 'voice',
-    en: { title: 'Voice + Screen Guide', body: 'I speak every prompt aloud and listen for your answers. Best if you cannot see the screen.' },
-    am: { title: 'ድምጽ እና ስክሪን መመሪያ', body: 'እያንዳንዱን መመሪያ በድምጽ እናነባለሁ እና መልስዎን አዳምጣለሁ። ስክሪኑን ማየት ካልቻሉ ምርጥ ነው።' },
+    id: 'voice',
+    en: { title: 'Profile A: Voice & Audio Guide', body: 'Read-aloud guidance and voice input are available while this profile is selected. Best for blind and low-vision users.' },
+    am: { title: 'መገለጫ A፦ የድምጽ መመሪያ', body: 'ይህ መገለጫ ሲመረጥ የድምጽ መመሪያና የድምጽ ግብዓት ይኖራሉ። ለዓይነ ስውራንና ዝቅተኛ እይታ ላላቸው ተስማሚ ነው።' },
   },
   {
-    mode: 'visual',
-    en: { title: 'Visual Text Guide Only', body: 'Large, clear on-screen text and alerts. No speech, no microphone. Best if you are Deaf or hard of hearing.' },
-    am: { title: 'የጽሑፍ መመሪያ ብቻ', body: 'ትልቅና ግልጽ የስክሪን ጽሑፍ እና ማሳወቂያ። ድምጽም ሆነ ማይክራፎን የለም። መስማት ካልቻሉ ምርጥ ነው።' },
+    id: 'visual',
+    en: { title: 'Profile B: Visual Text Guide Only', body: 'Large, clear on-screen text and alerts. No synthesized speech or microphone use. Best for Deaf and hard-of-hearing users.' },
+    am: { title: 'መገለጫ B፦ የጽሑፍ መመሪያ ብቻ', body: 'ትልቅና ግልጽ የስክሪን ጽሑፍና ማሳወቂያ። የተዋሃደ ድምጽም ሆነ ማይክራፎን አይጠቀምም። ለመስማት ችግር ላላቸው ተስማሚ ነው።' },
   },
   {
-    mode: 'standard',
-    en: { title: 'Standard Self-Guided', body: 'No assistant. You move through the platform yourself with keyboard, touch, or screen reader.' },
-    am: { title: 'መደበኛ ራስን መምራት', body: 'ረዳት የለም። መድረኩን በቁልፍ ሰሌዳ፣ በንክኪ ወይም በስክሪን አንባቢ ራስዎ ይመሩት።' },
+    id: 'motor',
+    en: { title: 'Profile C: Eye Gaze / Head Tracking', body: 'For motor access. Selecting this profile explicitly enables gaze control and may request camera permission; it never starts before your choice.' },
+    am: { title: 'መገለጫ C፦ የዓይን / የራስ እንቅስቃሴ', body: 'ለእንቅስቃሴ ድጋፍ። ይህን መገለጫ መምረጥ የዓይን ቁጥጥርን በግልጽ ፈቃድዎ ያበራል፤ የካሜራ ፈቃድ ሊጠይቅ ይችላል። ከመምረጥዎ በፊት አይጀምርም።' },
+  },
+  {
+    id: 'standard',
+    en: { title: 'Profile D: Standard / Self-Guided', body: 'No assistant audio or microphone. Use the platform yourself with keyboard, touch, or your screen reader.' },
+    am: { title: 'መገለጫ D፦ መደበኛ / ራስን መምራት', body: 'የረዳት ድምጽም ሆነ ማይክራፎን የለም። መድረኩን በቁልፍ ሰሌዳ፣ በንክኪ ወይም በስክሪን አንባቢ ይጠቀሙ።' },
   },
 ];
 
@@ -73,7 +78,9 @@ export const StartupAccessibilityModal: React.FC<StartupAccessibilityModalProps>
   const page = getPageCopy(preferences.language);
   const amharic = preferences.language === 'am';
 
-  const [step, setStep] = useState<Step>('language');
+  const [step, setStep] = useState<Step>(() =>
+    screenReaderActive && !screenReaderResolved ? 'sr' : 'language'
+  );
 
   useEffect(() => {
     if (!isOpen) return;
@@ -121,9 +128,24 @@ export const StartupAccessibilityModal: React.FC<StartupAccessibilityModalProps>
     onUpdatePreferences({ language: code, languageSelected: true });
   };
 
-  const selectGuidance = (mode: GuidanceMode) => {
+  const selectProfile = (profile: InteractionProfile) => {
     onStopSpeaking();
-    onUpdatePreferences({ guidanceMode: mode, spokenGuidanceEnabled: mode === 'voice' });
+    if (profile === 'motor') {
+      onUpdatePreferences({
+        guidanceMode: 'standard',
+        spokenGuidanceEnabled: false,
+        gazeControlEnabled: true,
+      });
+      return;
+    }
+    if (profile === 'voice' && (screenReaderActive || screenReaderResolved)) {
+      onResolveScreenReader('voice');
+    }
+    onUpdatePreferences({
+      guidanceMode: profile,
+      spokenGuidanceEnabled: profile === 'voice',
+      gazeControlEnabled: false,
+    });
   };
 
   const handleLanguageKeyDown = (event: React.KeyboardEvent<HTMLElement>, currentIndex: number) => {
@@ -145,6 +167,42 @@ export const StartupAccessibilityModal: React.FC<StartupAccessibilityModalProps>
     modalRef.current?.querySelector<HTMLButtonElement>(`[data-language="${next.code}"]`)?.focus();
   };
 
+  const handleProfileKeyDown = (
+    event: React.KeyboardEvent<HTMLButtonElement>,
+    currentIndex: number,
+  ) => {
+    if (!['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown'].includes(event.key)) return;
+    const buttons = Array.from(
+      modalRef.current?.querySelectorAll<HTMLButtonElement>('[data-profile]') || [],
+    );
+    if (buttons.length === 0) return;
+    event.preventDefault();
+    const forward = event.key === 'ArrowRight' || event.key === 'ArrowDown';
+    const delta = forward ? 1 : -1;
+    const columns = window.matchMedia('(min-width: 640px)').matches ? 2 : 1;
+    let nextIndex: number;
+    if (event.key === 'ArrowLeft' || event.key === 'ArrowRight') {
+      if (columns === 1) {
+        nextIndex = (currentIndex + delta + buttons.length) % buttons.length;
+      } else {
+        const rowStart = Math.floor(currentIndex / columns) * columns;
+        const column = (currentIndex % columns + delta + columns) % columns;
+        nextIndex = Math.min(rowStart + column, buttons.length - 1);
+      }
+    } else {
+      nextIndex = (currentIndex + delta * columns + buttons.length) % buttons.length;
+    }
+    buttons[nextIndex].focus();
+  };
+
+  const readProfilesAloud = () => {
+    const text = PROFILE_OPTIONS.map((option) => {
+      const description = option[amharic ? 'am' : 'en'];
+      return `${description.title}. ${description.body}`;
+    }).join(' ');
+    onSpeakText(text, amharic ? 'am-ET' : 'en-US');
+  };
+
   const finish = () => {
     onUpdatePreferences({ languageSelected: true, startupModalCompleted: true });
     onCompleteAndGo('login');
@@ -155,15 +213,7 @@ export const StartupAccessibilityModal: React.FC<StartupAccessibilityModalProps>
       ? amharic
         ? 'የስክሪን አንባቢ ተለይቷል'
         : 'Screen reader detected'
-      : step === 'language'
-        ? copy.languageStepTitle
-        : step === 'guidance'
-          ? amharic
-            ? 'እንዴት እንድረዳዎ ይፈልጋሉ?'
-            : 'How should I help you?'
-          : amharic
-            ? 'እንዴት መጠቀም ይፈልጋሉ?'
-            : 'How will you use the platform?';
+      : copy.languageStepTitle;
 
   return (
     <div
@@ -218,14 +268,8 @@ export const StartupAccessibilityModal: React.FC<StartupAccessibilityModalProps>
             >
               <p className="text-lg font-semibold leading-relaxed">
                 {amharic
-                  ? 'የስክሪን አንባቢ ተለይቷል። በስክሪን አንባቢዎ ብቻ መቀጠል ይፈልጋሉ፣ ወይስ ወደ አብሮ የድምጽ መመሪያ መቀየር ይፈልጋሉ?'
-                  : 'Screen reader detected. Would you like to continue with your screen reader only, or switch to the built-in AI voice guide?'}
-              </p>
-              <p className="mt-2 text-sm" lang="am">
-                የስክሪን አንባቢ ተለይቷል። በስክሪን አንባቢዎ ብቻ መቀጠል ይፈልጋሉ፣ ወይስ ወደ አብሮ የድምጽ መመሪያ መቀየር ይፈልጋሉ?
-              </p>
-              <p className="mt-1 text-sm" lang="en">
-                Screen reader detected. Would you like to continue with your screen reader only, or switch to the built-in AI voice guide?
+                  ? 'የስክሪን አንባቢ ተለይቷል። ስክሪን አንባቢዎን ብቻ መጠቀም ይፈልጋሉ፣ ወይስ አብሮ የተሰራውን ረዳት?'
+                  : 'Screen reader detected. Would you like to use your screen reader, or the built-in assistant?'}
               </p>
             </div>
             <div className="mt-5 grid grid-cols-1 gap-3 sm:grid-cols-2">
@@ -262,23 +306,25 @@ export const StartupAccessibilityModal: React.FC<StartupAccessibilityModalProps>
 
         {step === 'language' && (
           <>
-            <button
-              ref={primaryRef}
-              type="button"
-              onClick={
-                isSpeaking
-                  ? onStopSpeaking
-                  : () =>
-                      onSpeakText(
-                        amharic ? 'እንግሊዝኛ ወይም አማርኛ ይምረጡ።' : 'Please choose English or Amharic.',
-                        amharic ? 'am-ET' : 'en-US'
-                      )
-              }
-              className="mt-5 inline-flex items-center gap-2 rounded-lg border-2 border-slate-300 px-4 py-2.5 text-sm font-semibold text-[#001F3F] high-contrast:border-white high-contrast:bg-black high-contrast:text-white"
-            >
-              {isSpeaking ? <VolumeX className="h-4 w-4" aria-hidden="true" /> : <Volume2 className="h-4 w-4" aria-hidden="true" />}
-              {isSpeaking ? page.stopReading : copy.readLanguagesAloud}
-            </button>
+            {preferences.guidanceMode === 'voice' && (
+              <button
+                ref={primaryRef}
+                type="button"
+                onClick={
+                  isSpeaking
+                    ? onStopSpeaking
+                    : () =>
+                        onSpeakText(
+                          amharic ? 'እንግሊዝኛ ወይም አማርኛ ይምረጡ።' : 'Please choose English or Amharic.',
+                          amharic ? 'am-ET' : 'en-US'
+                        )
+                }
+                className="mt-5 inline-flex items-center gap-2 rounded-lg border-2 border-slate-300 px-4 py-2.5 text-sm font-semibold text-[#001F3F] high-contrast:border-white high-contrast:bg-black high-contrast:text-white"
+              >
+                {isSpeaking ? <VolumeX className="h-4 w-4" aria-hidden="true" /> : <Volume2 className="h-4 w-4" aria-hidden="true" />}
+                {isSpeaking ? page.stopReading : copy.readLanguagesAloud}
+              </button>
+            )}
 
             <div role="radiogroup" aria-label="Preferred language" className="mt-6 grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
               {SUPPORTED_LANGUAGES.map((langOption, index) => {
@@ -286,10 +332,15 @@ export const StartupAccessibilityModal: React.FC<StartupAccessibilityModalProps>
                 return (
                   <button
                     key={langOption.code}
+                    ref={
+                      selected && preferences.guidanceMode !== 'voice'
+                        ? primaryRef
+                        : undefined
+                    }
                     type="button"
                     role="radio"
                     aria-checked={selected}
-                    tabIndex={selected || (!preferences.languageSelected && index === 0) ? 0 : -1}
+                    tabIndex={selected ? 0 : -1}
                     data-language={langOption.code}
                     onKeyDown={(event) => handleLanguageKeyDown(event, index)}
                     onClick={() => selectLanguage(langOption.code)}
@@ -320,130 +371,76 @@ export const StartupAccessibilityModal: React.FC<StartupAccessibilityModalProps>
           </>
         )}
 
-        {step === 'guidance' && (
-          <div role="radiogroup" aria-label={amharic ? 'የእርዳታ ሁኔታ' : 'Guidance and output mode'} className="mt-6 grid grid-cols-1 gap-3 lg:grid-cols-3">
-            {GUIDANCE_OPTIONS.map((option, index) => {
-              const selected = preferences.guidanceMode === option.mode;
-              const text = option[amharic ? 'am' : 'en'];
-              const Icon = option.mode === 'voice' ? Volume2 : option.mode === 'visual' ? Type : Eye;
-              return (
-                <button
-                  key={option.mode}
-                  ref={index === 0 ? primaryRef : undefined}
-                  type="button"
-                  role="radio"
-                  aria-checked={selected}
-                  tabIndex={selected || index === 0 ? 0 : -1}
-                  onClick={() => selectGuidance(option.mode)}
-                  className={`rounded-3xl border p-5 text-left shadow-[0_16px_40px_-28px_rgba(26,115,232,0.55)] transition hover:-translate-y-1 ${
-                    selected
-                      ? 'border-[#1a73e8] bg-gradient-to-br from-white to-[#d7ebff] high-contrast:border-yellow-300 high-contrast:bg-neutral-900'
-                      : 'border-[#d5e6f7] bg-white/90 high-contrast:border-slate-600 high-contrast:bg-black'
-                  }`}
-                >
-                  <span className="flex items-start justify-between gap-3">
-                    <span>
-                      <Icon className="h-6 w-6 text-[#0056B3] high-contrast:text-cyan-300" aria-hidden="true" />
-                      <span className="mt-2 block font-display text-lg font-bold text-[#001F3F] high-contrast:text-white">
-                        {text.title}
-                      </span>
-                      <span className="mt-1 block text-sm leading-relaxed text-slate-600 high-contrast:text-slate-300">
-                        {text.body}
-                      </span>
-                    </span>
-                    {selected && <Check className="h-5 w-5 shrink-0 text-[#0056B3] high-contrast:text-yellow-300" aria-hidden="true" />}
-                  </span>
-                </button>
-              );
-            })}
-          </div>
-        )}
-
-        {step === 'motor' && (
-          <div className="mt-6 space-y-3">
-            <p className="text-sm leading-relaxed text-slate-600 high-contrast:text-slate-300">
-              {amharic
-                ? 'የዓይን እንቅስቃሴ በራስ-ሰር አይጀመርም። እዚህ ወይም በቅንብሮች ውስጥ ሲፈልጉ ብቻ ማብራት ይችላሉ።'
-                : 'Eye gaze never starts automatically. Turn it on here or later in settings, only when you want it.'}
-            </p>
-            <button
-              ref={primaryRef}
-              type="button"
-              role="switch"
-              aria-checked={preferences.gazeControlEnabled}
-              onClick={() => onUpdatePreferences({ gazeControlEnabled: !preferences.gazeControlEnabled })}
-              className={`flex w-full items-center justify-between gap-4 rounded-2xl border-2 p-5 text-left ${
-                preferences.gazeControlEnabled
-                  ? 'border-[#1a73e8] bg-[#e7f3ff] high-contrast:border-yellow-300 high-contrast:bg-neutral-900'
-                  : 'border-[#d5e6f7] bg-white high-contrast:border-slate-600 high-contrast:bg-black'
-              }`}
-            >
-              <span>
-                <span className="block text-lg font-bold text-[#001F3F] high-contrast:text-white">
-                  {amharic ? 'ያለእጅ በዓይን እንቅስቃሴ መጠቀም' : 'Use hands-free eye gaze'}
-                </span>
-                <span className="mt-1 block text-sm text-slate-600 high-contrast:text-slate-300">
-                  {amharic
-                    ? 'ለእጅ እንቅስቃሴ ውስንነት ይረዳል። ማስተካከያ ይጠይቃል።'
-                    : 'Helps with motor limitations. Requires a short calibration.'}
-                </span>
-              </span>
-              <span
-                className={`flex h-7 w-12 shrink-0 items-center rounded-full p-1 transition ${
-                  preferences.gazeControlEnabled ? 'bg-[#1a73e8]' : 'bg-slate-300'
-                }`}
-                aria-hidden="true"
+        {step === 'language' && (
+          <>
+            {preferences.guidanceMode === 'voice' && (
+              <button
+                type="button"
+                onClick={isSpeaking ? onStopSpeaking : readProfilesAloud}
+                className="mt-5 inline-flex items-center gap-2 rounded-lg border-2 border-slate-300 px-4 py-2.5 text-sm font-semibold text-[#001F3F] high-contrast:border-white high-contrast:bg-black high-contrast:text-white"
               >
-                <span
-                  className={`h-5 w-5 rounded-full bg-white transition ${preferences.gazeControlEnabled ? 'translate-x-5' : ''}`}
-                />
-              </span>
-            </button>
-          </div>
+                {isSpeaking ? <VolumeX className="h-4 w-4" aria-hidden="true" /> : <Volume2 className="h-4 w-4" aria-hidden="true" />}
+                {isSpeaking
+                  ? page.stopReading
+                  : amharic
+                    ? 'የመገለጫ ምርጫዎችን በድምጽ ያዳምጡ'
+                    : 'Read profile options aloud'}
+              </button>
+            )}
+            <div
+              role="group"
+              aria-label={amharic ? 'የመገለጫ ምርጫዎች' : 'Interaction profiles'}
+              className="mt-6 grid grid-cols-1 gap-3 sm:grid-cols-2"
+            >
+              {PROFILE_OPTIONS.map((option, index) => {
+                const selected =
+                  option.id === 'motor'
+                    ? preferences.gazeControlEnabled
+                    : !preferences.gazeControlEnabled && preferences.guidanceMode === option.id;
+                const text = option[amharic ? 'am' : 'en'];
+                const Icon =
+                  option.id === 'voice'
+                    ? Volume2
+                    : option.id === 'visual'
+                      ? Type
+                      : option.id === 'motor'
+                        ? Eye
+                        : EyeOff;
+                return (
+                  <button
+                    key={option.id}
+                    type="button"
+                    data-profile={option.id}
+                    aria-pressed={selected}
+                    onKeyDown={(event) => handleProfileKeyDown(event, index)}
+                    onClick={() => selectProfile(option.id)}
+                    className={`min-h-36 rounded-3xl border p-5 text-left shadow-[0_16px_40px_-28px_rgba(26,115,232,0.55)] transition hover:-translate-y-1 focus-visible:outline focus-visible:outline-3 focus-visible:outline-offset-2 focus-visible:outline-[#0056B3] ${
+                      selected
+                        ? 'border-[#1a73e8] bg-gradient-to-br from-white to-[#d7ebff] high-contrast:border-yellow-300 high-contrast:bg-neutral-900'
+                        : 'border-[#d5e6f7] bg-white/90 high-contrast:border-slate-600 high-contrast:bg-black'
+                    }`}
+                  >
+                    <span className="flex items-start justify-between gap-3">
+                      <span>
+                        <Icon className="h-6 w-6 text-[#0056B3] high-contrast:text-cyan-300" aria-hidden="true" />
+                        <span className="mt-2 block font-display text-lg font-bold text-[#001F3F] high-contrast:text-white">
+                          {text.title}
+                        </span>
+                        <span className="mt-1 block text-sm leading-relaxed text-slate-600 high-contrast:text-slate-300">
+                          {text.body}
+                        </span>
+                      </span>
+                      {selected && <Check className="h-5 w-5 shrink-0 text-[#0056B3] high-contrast:text-yellow-300" aria-hidden="true" />}
+                    </span>
+                  </button>
+                );
+              })}
+            </div>
+          </>
         )}
 
         <div className="mt-8 flex flex-wrap items-center justify-between gap-3 border-t border-slate-200 pt-5 high-contrast:border-white">
-          <div className="flex flex-wrap gap-2">
-            {step === 'guidance' && (
-              <button
-                type="button"
-                onClick={() => setStep('language')}
-                className="inline-flex items-center gap-2 rounded-full border border-slate-300 px-5 py-3 text-sm font-semibold text-slate-700 high-contrast:border-white high-contrast:text-white"
-              >
-                {amharic ? 'ተመለስ' : 'Back'}
-              </button>
-            )}
-            {step === 'motor' && (
-              <button
-                type="button"
-                onClick={() => setStep('guidance')}
-                className="inline-flex items-center gap-2 rounded-full border border-slate-300 px-5 py-3 text-sm font-semibold text-slate-700 high-contrast:border-white high-contrast:text-white"
-              >
-                {amharic ? 'ተመለስ' : 'Back'}
-              </button>
-            )}
-          </div>
           {step === 'language' && (
-            <button
-              type="button"
-              onClick={() => setStep('guidance')}
-              className="inline-flex items-center gap-2 rounded-full bg-[#1a73e8] px-6 py-3.5 text-sm font-semibold text-white high-contrast:bg-yellow-300 high-contrast:text-black"
-            >
-              {copy.continueToSetup}
-              <ArrowRight className="h-4 w-4" aria-hidden="true" />
-            </button>
-          )}
-          {step === 'guidance' && (
-            <button
-              type="button"
-              onClick={() => setStep('motor')}
-              className="inline-flex items-center gap-2 rounded-full bg-[#1a73e8] px-6 py-3.5 text-sm font-semibold text-white high-contrast:bg-yellow-300 high-contrast:text-black"
-            >
-              {amharic ? 'ቀጥል' : 'Continue'}
-              <ArrowRight className="h-4 w-4" aria-hidden="true" />
-            </button>
-          )}
-          {step === 'motor' && (
             <button
               type="button"
               onClick={finish}

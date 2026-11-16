@@ -87,7 +87,7 @@
     min-height: 44px;
   }
 
-  button:not([data-compact]),
+  button,
   [role='button'],
   [role='tab'],
   summary {
