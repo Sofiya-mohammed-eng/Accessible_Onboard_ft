@@ -59,9 +59,13 @@ export const VoiceDock: React.FC<VoiceDockProps> = ({ language, speaking, onSpea
   };
 
   return (
-    <div className="fixed bottom-4 left-4 z-30 flex max-w-sm flex-col gap-2">
+    <div
+      role="region"
+      aria-label="Voice and reading controls"
+      className="fixed bottom-4 left-4 z-30 flex max-w-sm flex-col gap-2"
+    >
       {note && (
-        <p role="status" className="rounded-xl bg-[#0e2a4a] px-3 py-2 text-sm font-semibold text-white shadow-lg">
+        <p role="status" aria-live="polite" className="rounded-xl bg-[#0e2a4a] px-3 py-2 text-sm font-semibold text-white shadow-lg">
           {note}
         </p>
       )}

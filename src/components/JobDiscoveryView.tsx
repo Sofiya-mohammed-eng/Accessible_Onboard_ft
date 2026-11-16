@@ -1,5 +1,6 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { Check, Search, Shield } from 'lucide-react';
+import { Check, LoaderCircle, Search, Shield, Sparkles } from 'lucide-react';
+import { parseJobSearchQueryLocally } from '../engines/ollamaService';
 import { getPageCopy } from '../engines/pageCopy';
 import { JobListing, NavigationView, PreferredLanguage } from '../types/accessbridge';
 import { JobPostingView } from './JobPostingView';
@@ -136,6 +137,8 @@ export const JobDiscoveryView: React.FC<JobDiscoveryViewProps> = ({
   const [access, setAccess] = useState<AccessFeature[]>([]);
   const [query, setQuery] = useState('');
   const [appliedQuery, setAppliedQuery] = useState('');
+  const [isParsingQuery, setIsParsingQuery] = useState(false);
+  const [searchNotice, setSearchNotice] = useState('');
   const [openJobId, setOpenJobId] = useState<string | null>(null);
   const [postingId, setPostingId] = useState<string | null>(null);
   const [loginJob, setLoginJob] = useState<Opportunity | null>(null);
@@ -158,7 +161,10 @@ export const JobDiscoveryView: React.FC<JobDiscoveryViewProps> = ({
       ]
         .join(' ')
         .toLowerCase();
-      return haystack.includes(needle);
+      return (
+        haystack.includes(needle) ||
+        needle.split(/\s+/).every((term) => haystack.includes(term))
+      );
     });
   }, [access, appliedQuery, schedule, workplace]);
 
@@ -207,12 +213,42 @@ export const JobDiscoveryView: React.FC<JobDiscoveryViewProps> = ({
     setQuery('');
     setAppliedQuery('');
     setOpenJobId(null);
+    setSearchNotice('');
   };
 
   const toggleAccess = (feature: AccessFeature) => {
     setAccess((current) =>
       current.includes(feature) ? current.filter((item) => item !== feature) : [...current, feature]
     );
+  };
+
+  const understandSearchLocally = async () => {
+    const originalQuery = query.trim();
+    if (!originalQuery || isParsingQuery) return;
+
+    setIsParsingQuery(true);
+    setSearchNotice(
+      language === 'am' ? 'በአካባቢው Ollama የፍለጋ ጥያቄውን በመረዳት ላይ…' : 'Understanding your search locally…'
+    );
+    try {
+      const parsed = await parseJobSearchQueryLocally(originalQuery, { targetLanguage: language });
+      setAppliedQuery(parsed.searchText);
+      setSearchNotice(
+        language === 'am'
+          ? `የአካባቢ ፍለጋ ተዘጋጅቷል፦ ${parsed.searchText}`
+          : `Local search ready: ${parsed.searchText}`
+      );
+    } catch (error) {
+      setAppliedQuery(originalQuery);
+      const detail = error instanceof Error ? error.message : 'Unknown Ollama error.';
+      setSearchNotice(
+        language === 'am'
+          ? `Ollama አልተገናኘም፤ የመጀመሪያውን ጽሑፍ በመጠቀም ፈልግ። ${detail}`
+          : `Ollama unavailable; searching the original text instead. ${detail}`
+      );
+    } finally {
+      setIsParsingQuery(false);
+    }
   };
 
   return (
@@ -226,6 +262,7 @@ export const JobDiscoveryView: React.FC<JobDiscoveryViewProps> = ({
             <button
               type="button"
               onClick={clearAll}
+              aria-label="Clear all job filters"
               className="text-sm font-semibold text-[#1a73e8] underline decoration-[#1a73e8]/40 underline-offset-4 hover:decoration-[#1a73e8] high-contrast:text-yellow-300"
             >
               Clear all
@@ -309,6 +346,7 @@ export const JobDiscoveryView: React.FC<JobDiscoveryViewProps> = ({
             onSubmit={(event) => {
               event.preventDefault();
               setAppliedQuery(query);
+              setSearchNotice('');
             }}
           >
             <Search className="ml-2 h-4 w-4 shrink-0 text-[#7d8f84]" aria-hidden="true" />
@@ -319,7 +357,10 @@ export const JobDiscoveryView: React.FC<JobDiscoveryViewProps> = ({
               id="opportunity-search"
               type="search"
               value={query}
-              onChange={(event) => setQuery(event.target.value)}
+              onChange={(event) => {
+                setQuery(event.target.value);
+                setSearchNotice('');
+              }}
               placeholder={page.searchPlaceholder}
               className="min-w-0 flex-1 bg-transparent px-2 py-2.5 text-sm text-[#0e2a4a] outline-none placeholder:text-[#8aa093] high-contrast:text-white"
             />
@@ -331,14 +372,36 @@ export const JobDiscoveryView: React.FC<JobDiscoveryViewProps> = ({
             </button>
           </form>
 
+          <div className="mt-3 flex flex-wrap items-center gap-3">
+            <button
+              type="button"
+              onClick={understandSearchLocally}
+              disabled={!query.trim() || isParsingQuery}
+              className="inline-flex items-center gap-2 rounded-xl border border-[#d0e3f5] bg-white px-4 py-2.5 text-sm font-semibold text-[#1a73e8] hover:border-[#1a73e8] disabled:cursor-not-allowed disabled:opacity-60 high-contrast:border-yellow-300 high-contrast:bg-black high-contrast:text-yellow-300"
+            >
+              {isParsingQuery ? (
+                <LoaderCircle className="h-4 w-4 animate-spin" aria-hidden="true" />
+              ) : (
+                <Sparkles className="h-4 w-4" aria-hidden="true" />
+              )}
+              {language === 'am' ? 'በአካባቢ AI አስተውል' : 'Understand with local AI'}
+            </button>
+            <p className="text-xs text-[#5a7390] high-contrast:text-slate-300">
+              {language === 'am' ? 'ጽሑፉ ከመሣሪያዎ አይወጣም።' : 'Your text stays on your device.'}
+            </p>
+            <p className="sr-only" role="status" aria-live="polite" aria-atomic="true">
+              {searchNotice}
+            </p>
+          </div>
+
           <div className="mt-5 flex flex-wrap items-center justify-between gap-2 text-sm text-[#4d6786] high-contrast:text-slate-200">
-            <p>
+            <p role="status" aria-live="polite" aria-atomic="true">
               {results.length} {results.length === 1 ? 'opportunity' : 'opportunities'} found
             </p>
             <p>Sorted by: Most relevant</p>
           </div>
 
-          <ul className="mt-4 space-y-4">
+          <ul aria-label="Job search results" className="mt-4 space-y-4">
             {results.map((job) => {
               const detailsOpen = openJobId === job.id;
               const detailsId = `${job.id}-details`;
@@ -348,7 +411,10 @@ export const JobDiscoveryView: React.FC<JobDiscoveryViewProps> = ({
                   className="rounded-3xl border border-white/80 bg-white/85 p-5 shadow-[0_22px_50px_-28px_rgba(26,115,232,0.45)] backdrop-blur high-contrast:border-white high-contrast:bg-black sm:p-6"
                 >
                   <div className="flex items-start gap-4">
-                    <span className="grid h-11 w-11 shrink-0 place-items-center rounded-xl bg-[#e7f3ff] font-display text-lg font-bold text-[#1a73e8] high-contrast:bg-black high-contrast:text-yellow-300 high-contrast:ring-1 high-contrast:ring-yellow-300">
+                    <span
+                      aria-hidden="true"
+                      className="grid h-11 w-11 shrink-0 place-items-center rounded-xl bg-[#e7f3ff] font-display text-lg font-bold text-[#1a73e8] high-contrast:bg-black high-contrast:text-yellow-300 high-contrast:ring-1 high-contrast:ring-yellow-300"
+                    >
                       {job.mark}
                     </span>
                     <div className="min-w-0 flex-1">
@@ -395,7 +461,7 @@ export const JobDiscoveryView: React.FC<JobDiscoveryViewProps> = ({
 
                       <div className="mt-4 flex flex-wrap items-center justify-between gap-3 border-t border-[#e3eef8] pt-4 high-contrast:border-white/25">
                         <p className="text-sm text-[#5a7390] high-contrast:text-slate-300">
-                          Apply by
+                          Apply by{' '}
                           <span className="mt-0.5 block font-semibold text-[#0e2a4a] high-contrast:text-white">
                             {job.applyBy}
                           </span>
@@ -404,6 +470,7 @@ export const JobDiscoveryView: React.FC<JobDiscoveryViewProps> = ({
                           <button
                             type="button"
                             data-voice-apply={job.title}
+                            aria-label={`${page.applyNow}: ${job.title}`}
                             onClick={() => onSelectJobForApplication(toListing(job))}
                             className="rounded-xl bg-[#1a73e8] px-4 py-2.5 text-sm font-semibold text-white hover:bg-[#1259b8] high-contrast:bg-yellow-300 high-contrast:text-black"
                           >
@@ -414,6 +481,7 @@ export const JobDiscoveryView: React.FC<JobDiscoveryViewProps> = ({
                             data-voice-details={job.title}
                             aria-expanded={detailsOpen}
                             aria-controls={detailsId}
+                            aria-label={`${page.viewDetails}: ${job.title}`}
                             onClick={() => setOpenJobId(detailsOpen ? null : job.id)}
                             className="rounded-xl border border-[#d0e3f5] bg-white px-4 py-2.5 text-sm font-semibold text-[#1a73e8] hover:border-[#1a73e8] high-contrast:border-yellow-300 high-contrast:bg-black high-contrast:text-yellow-300"
                           >
@@ -423,7 +491,12 @@ export const JobDiscoveryView: React.FC<JobDiscoveryViewProps> = ({
                       </div>
 
                       {detailsOpen && (
-                        <div id={detailsId} className="mt-4 rounded-xl bg-[#eef6ff] p-4 high-contrast:bg-black high-contrast:ring-1 high-contrast:ring-white">
+                        <div
+                          id={detailsId}
+                          role="region"
+                          aria-label={`${job.title} details`}
+                          className="mt-4 rounded-xl bg-[#eef6ff] p-4 high-contrast:bg-black high-contrast:ring-1 high-contrast:ring-white"
+                        >
                           <p className="text-sm leading-relaxed text-[#2c4a6e] high-contrast:text-slate-200">
                             {job.summary} {job.organization} lists this as {job.level.toLowerCase()} in{' '}
                             {job.location}.
@@ -433,6 +506,7 @@ export const JobDiscoveryView: React.FC<JobDiscoveryViewProps> = ({
                           </p>
                           <button
                             type="button"
+                            aria-label={`${page.prepareApplication}: ${job.title}`}
                             onClick={() => setPostingId(job.id)}
                             className="mt-4 rounded-xl bg-[#1a73e8] px-4 py-2.5 text-sm font-semibold text-white hover:bg-[#1259b8] high-contrast:bg-yellow-300 high-contrast:text-black"
                           >
@@ -448,7 +522,10 @@ export const JobDiscoveryView: React.FC<JobDiscoveryViewProps> = ({
           </ul>
 
           {results.length === 0 && (
-            <p className="mt-6 rounded-2xl border border-dashed border-[#c5dbf2] bg-white px-5 py-8 text-center text-sm text-[#4d6786] high-contrast:border-white high-contrast:bg-black high-contrast:text-white">
+            <p
+              role="status"
+              className="mt-6 rounded-2xl border border-dashed border-[#c5dbf2] bg-white px-5 py-8 text-center text-sm text-[#4d6786] high-contrast:border-white high-contrast:bg-black high-contrast:text-white"
+            >
               {page.noMatches}
             </p>
           )}

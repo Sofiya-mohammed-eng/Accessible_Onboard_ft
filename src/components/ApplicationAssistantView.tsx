@@ -370,6 +370,10 @@ export const ApplicationAssistantView: React.FC<ApplicationAssistantViewProps> =
               {page.yourAnswer}
               <input
                 type={question.type}
+                required
+                aria-required="true"
+                aria-invalid={Boolean(formError)}
+                aria-describedby={formError ? 'application-error' : undefined}
                 value={answers[question.key]}
                 onChange={(event) => setAnswer(question.key, event.target.value)}
                 className="mt-2 w-full rounded-xl border border-[#c5daf2] bg-white px-4 py-3 text-base text-[#0e2a4a] high-contrast:border-white high-contrast:bg-black high-contrast:text-white"
@@ -407,12 +411,18 @@ export const ApplicationAssistantView: React.FC<ApplicationAssistantViewProps> =
               <strong className="text-[#0e2a4a] high-contrast:text-white" data-voice="cv-name">
                 {answers.cv || page.chooseFile}
               </strong>
-              <p className="mt-1 text-sm text-slate-500 high-contrast:text-slate-300">{page.fileHint}</p>
+              <p id="cv-file-hint" className="mt-1 text-sm text-slate-500 high-contrast:text-slate-300">{page.fileHint}</p>
+              <label className="sr-only" htmlFor="cv-file">
+                {page.addCvTitle}
+              </label>
               <input
                 id="cv-file"
                 data-voice="file"
                 type="file"
                 accept=".pdf,.doc,.docx"
+                aria-required="true"
+                aria-invalid={Boolean(formError)}
+                aria-describedby={formError ? 'application-error' : 'cv-file-hint'}
                 className="sr-only"
                 onChange={(event) => {
                   const picked = event.target.files?.[0]?.name || '';
@@ -465,6 +475,7 @@ export const ApplicationAssistantView: React.FC<ApplicationAssistantViewProps> =
                   </dd>
                   <button
                     type="button"
+                    aria-label={`${page.edit}: ${questionTitles[field.key]}`}
                     onClick={() => setStep(field.step)}
                     className="font-bold text-[#1a73e8] underline high-contrast:text-yellow-300"
                   >
@@ -487,6 +498,7 @@ export const ApplicationAssistantView: React.FC<ApplicationAssistantViewProps> =
 
         {formError && (
           <p
+            id="application-error"
             role="alert"
             data-voice-fix={step === 6 ? 'file' : 'answer'}
             className="mt-6 rounded-xl bg-[#fdecec] px-4 py-3 text-sm font-semibold text-[#8a1f17]"

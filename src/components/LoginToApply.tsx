@@ -32,6 +32,7 @@ export const LoginToApply: React.FC<LoginToApplyProps> = ({
   const [error, setError] = useState('');
   const [errorField, setErrorField] = useState('');
   const headingRef = useRef<HTMLHeadingElement>(null);
+  const formHeadingRef = useRef<HTMLHeadingElement>(null);
 
   const showError = (field: string, message: string) => {
     setErrorField(field);
@@ -42,6 +43,10 @@ export const LoginToApply: React.FC<LoginToApplyProps> = ({
     headingRef.current?.focus();
     window.scrollTo(0, 0);
   }, []);
+
+  useEffect(() => {
+    if (stage === 'form') formHeadingRef.current?.focus();
+  }, [stage, mode]);
 
   const submit = (event: React.FormEvent) => {
     event.preventDefault();
@@ -159,15 +164,20 @@ export const LoginToApply: React.FC<LoginToApplyProps> = ({
           >
             {page.back}
           </button>
-          <h2 className="mt-5 font-display text-3xl font-bold text-[#0e2a4a] high-contrast:text-white">
+          <h2
+            ref={formHeadingRef}
+            tabIndex={-1}
+            className="mt-5 font-display text-3xl font-bold text-[#0e2a4a] focus:outline-none focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-[#f5a623] high-contrast:text-white"
+          >
             {mode === 'register' ? page.createAccount : page.welcomeBack}
           </h2>
-          <p className="mt-2 text-sm leading-relaxed text-[#5a7390] high-contrast:text-slate-300">
+          <p id="login-hint" className="mt-2 text-sm leading-relaxed text-[#5a7390] high-contrast:text-slate-300">
             {page.loginHint}
           </p>
 
           {error && (
             <p
+              id="login-error"
               role="alert"
               data-voice-fix={errorField}
               className="mt-4 rounded-xl bg-[#fdecec] px-4 py-3 text-sm font-semibold text-[#8a1f17]"
@@ -183,8 +193,11 @@ export const LoginToApply: React.FC<LoginToApplyProps> = ({
                 <UserRound className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-[#6d7f74]" aria-hidden="true" />
                 <input
                   type="text"
+                  required
+                  aria-required="true"
                   autoComplete="name"
                   aria-invalid={errorField === 'name'}
+                  aria-describedby={errorField === 'name' ? 'login-error' : undefined}
                   value={name}
                   onChange={(event) => {
                     setName(event.target.value);
@@ -203,8 +216,11 @@ export const LoginToApply: React.FC<LoginToApplyProps> = ({
               <Mail className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-[#6d7f74]" aria-hidden="true" />
               <input
                 type="email"
+                required
+                aria-required="true"
                 autoComplete="email"
                 aria-invalid={errorField === 'email'}
+                aria-describedby={errorField === 'email' ? 'login-error' : undefined}
                 value={email}
                 onChange={(event) => {
                   setEmail(event.target.value);
@@ -222,8 +238,11 @@ export const LoginToApply: React.FC<LoginToApplyProps> = ({
               <Lock className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-[#6d7f74]" aria-hidden="true" />
               <input
                 type={showPassword ? 'text' : 'password'}
-                autoComplete="current-password"
+                required
+                aria-required="true"
+                autoComplete={mode === 'register' ? 'new-password' : 'current-password'}
                 aria-invalid={errorField === 'password'}
+                aria-describedby={errorField === 'password' ? 'login-error' : undefined}
                 value={password}
                 onChange={(event) => {
                   setPassword(event.target.value);
@@ -251,8 +270,11 @@ export const LoginToApply: React.FC<LoginToApplyProps> = ({
                 <Lock className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-[#6d7f74]" aria-hidden="true" />
                 <input
                   type={showPassword ? 'text' : 'password'}
+                  required
+                  aria-required="true"
                   autoComplete="new-password"
                   aria-invalid={errorField === 'confirm'}
+                  aria-describedby={errorField === 'confirm' ? 'login-error' : undefined}
                   value={confirmPassword}
                   onChange={(event) => {
                     setConfirmPassword(event.target.value);

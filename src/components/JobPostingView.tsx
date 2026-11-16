@@ -168,6 +168,7 @@ export const JobPostingView: React.FC<JobPostingViewProps> = ({
             <button
               type="button"
               data-voice-apply={title}
+              aria-label={`${page.applyNow}: ${title}`}
               onClick={onApply}
               className="rounded-xl bg-[#1a73e8] px-6 py-3 text-sm font-semibold text-white shadow-[0_10px_24px_-12px_rgba(26,115,232,0.9)] hover:bg-[#1259b8] high-contrast:bg-yellow-300 high-contrast:text-black"
             >
@@ -181,7 +182,10 @@ export const JobPostingView: React.FC<JobPostingViewProps> = ({
 
         <div className="mt-8 grid items-start gap-8 lg:grid-cols-[minmax(0,1fr)_280px]">
           <div>
-            <div className="flex gap-6 border-b border-[#dce5df] high-contrast:border-white/30" role="tablist" aria-label="Job posting sections">
+            <nav
+              aria-label="Job posting sections"
+              className="flex gap-6 border-b border-[#dce5df] high-contrast:border-white/30"
+            >
               {(
                 [
                   ['about', 'About the role'],
@@ -192,8 +196,8 @@ export const JobPostingView: React.FC<JobPostingViewProps> = ({
                 <button
                   key={id}
                   type="button"
-                  role="tab"
-                  aria-selected={activeTab === id}
+                  aria-current={activeTab === id ? 'true' : undefined}
+                  aria-label={`Go to ${label} section`}
                   onClick={() => showSection(id)}
                   className={`-mb-px border-b-2 pb-3 text-sm font-semibold ${
                     activeTab === id
@@ -204,7 +208,7 @@ export const JobPostingView: React.FC<JobPostingViewProps> = ({
                   {label}
                 </button>
               ))}
-            </div>
+            </nav>
 
             <section id="about" className="scroll-mt-24 pt-8">
               <h2 className="font-display text-2xl font-bold text-[#0e2a4a] high-contrast:text-white">About the role</h2>
@@ -270,12 +274,13 @@ export const JobPostingView: React.FC<JobPostingViewProps> = ({
           </div>
 
           <aside className="rounded-2xl border border-[#e4eef8] bg-white p-5 shadow-[0_16px_40px_-32px_rgba(26,115,232,0.7)] high-contrast:border-white high-contrast:bg-black lg:sticky lg:top-24">
-            <p className="text-xs text-[#6d7f74] high-contrast:text-slate-300">Application deadline</p>
+            <h2 className="text-xs text-[#6d7f74] high-contrast:text-slate-300">Application deadline</h2>
             <p className="mt-2 font-display text-xl font-bold text-[#0e2a4a] high-contrast:text-white">{posting.deadline}</p>
             <p className="mt-1 text-sm text-[#5a7390] high-contrast:text-slate-300">{posting.deadlineTime}</p>
             <button
               type="button"
               data-voice-apply={title}
+              aria-label={`${page.applyNow}: ${title}`}
               onClick={onApply}
               className="mt-5 w-full rounded-xl border border-[#d0e3f5] bg-white px-4 py-3 text-sm font-semibold text-[#1a73e8] hover:border-[#1a73e8] high-contrast:border-yellow-300 high-contrast:bg-black high-contrast:text-yellow-300"
             >

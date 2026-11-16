@@ -54,6 +54,7 @@ export const AppHeader: React.FC<AppHeaderProps> = ({
         <button
           type="button"
           onClick={() => handleNav('landing')}
+          aria-label={language === 'am' ? 'AllWays መነሻ ገጽ' : 'AllWays home page'}
           className="font-display text-2xl font-bold tracking-tight text-[#0e2a4a] hover:text-[#1a73e8] whitespace-nowrap shrink-0 high-contrast:text-yellow-300"
         >
           AllWays
@@ -115,6 +116,11 @@ export const AppHeader: React.FC<AppHeaderProps> = ({
               onOpenLanguage();
               setMobileMenuOpen(false);
             }}
+            aria-label={
+              language === 'am'
+                ? `ቋንቋ ይቀይሩ። አሁን ያለው ቋንቋ፦ ${languageLabel}`
+                : `Change language. Current language: ${languageLabel}`
+            }
             className="inline-flex items-center gap-1.5 rounded-lg border border-slate-300 px-3 py-2 text-sm font-semibold text-[#001F3F] hover:bg-slate-50 high-contrast:border-white high-contrast:text-white"
           >
             <Globe className="h-4 w-4" aria-hidden="true" />

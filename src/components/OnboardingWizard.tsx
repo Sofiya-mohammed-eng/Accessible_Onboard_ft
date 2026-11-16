@@ -166,6 +166,34 @@ export const OnboardingWizard: React.FC<OnboardingWizardProps> = ({
     }
   };
 
+  const textSizeOptions: Array<{ id: TextSizeOption; label: string }> = [
+    { id: 'normal', label: 'Standard (16px)' },
+    { id: 'large', label: 'Large (18px)' },
+    { id: 'xlarge', label: 'Extra Large (21px)' },
+  ];
+
+  const handleTextSizeKeyDown = (event: React.KeyboardEvent<HTMLDivElement>) => {
+    const index = textSizeOptions.findIndex((option) => option.id === preferences.textSize);
+    let nextIndex = index;
+    if (event.key === 'ArrowRight' || event.key === 'ArrowDown') {
+      nextIndex = (index + 1) % textSizeOptions.length;
+    } else if (event.key === 'ArrowLeft' || event.key === 'ArrowUp') {
+      nextIndex = (index - 1 + textSizeOptions.length) % textSizeOptions.length;
+    } else if (event.key === 'Home') {
+      nextIndex = 0;
+    } else if (event.key === 'End') {
+      nextIndex = textSizeOptions.length - 1;
+    } else {
+      return;
+    }
+    event.preventDefault();
+    const next = textSizeOptions[nextIndex];
+    onUpdatePreferences({ textSize: next.id });
+    event.currentTarget
+      .querySelector<HTMLButtonElement>(`[data-text-size="${next.id}"]`)
+      ?.focus();
+  };
+
   const renderGroup = (title: string, subtitle: string, options: ToggleOption[]) => (
     <fieldset className="rounded-xl border border-slate-200 bg-white p-6 high-contrast:border-white high-contrast:bg-black">
       <legend className="px-1 font-display text-lg font-bold text-[#001F3F] high-contrast:text-yellow-300">
@@ -182,6 +210,8 @@ export const OnboardingWizard: React.FC<OnboardingWizardProps> = ({
               type="button"
               role="checkbox"
               aria-checked={checked}
+              aria-label={opt.label}
+              aria-describedby={`${String(opt.key)}-description`}
               onClick={() => toggleBoolean(opt.key)}
               className={`flex items-start gap-3.5 rounded-lg border-2 p-4 text-left transition-colors ${
                 checked
@@ -203,7 +233,10 @@ export const OnboardingWizard: React.FC<OnboardingWizardProps> = ({
                 <span className="block text-sm font-semibold text-[#001F3F] high-contrast:text-white">
                   {opt.label}
                 </span>
-                <span className="mt-1 block text-xs leading-relaxed text-slate-600 high-contrast:text-slate-300">
+                <span
+                  id={`${String(opt.key)}-description`}
+                  className="mt-1 block text-xs leading-relaxed text-slate-600 high-contrast:text-slate-300"
+                >
                   {opt.description}
                 </span>
               </span>
@@ -293,6 +326,8 @@ export const OnboardingWizard: React.FC<OnboardingWizardProps> = ({
                   type="button"
                   role="checkbox"
                   aria-checked={checked}
+                  aria-label={opt.label}
+                  aria-describedby={`${String(opt.key)}-description`}
                   onClick={() => toggleBoolean(opt.key)}
                   className={`flex items-start gap-3.5 rounded-lg border-2 p-4 text-left transition-colors ${
                     checked
@@ -314,7 +349,10 @@ export const OnboardingWizard: React.FC<OnboardingWizardProps> = ({
                     <span className="block text-sm font-semibold text-[#001F3F] high-contrast:text-white">
                       {opt.label}
                     </span>
-                    <span className="mt-1 block text-xs leading-relaxed text-slate-600 high-contrast:text-slate-300">
+                    <span
+                      id={`${String(opt.key)}-description`}
+                      className="mt-1 block text-xs leading-relaxed text-slate-600 high-contrast:text-slate-300"
+                    >
                       {opt.description}
                     </span>
                   </span>
@@ -327,14 +365,13 @@ export const OnboardingWizard: React.FC<OnboardingWizardProps> = ({
             <p className="text-sm font-semibold text-[#001F3F] high-contrast:text-white">
               Adjustable Text Size
             </p>
-            <div className="mt-2.5 flex flex-wrap gap-3" role="radiogroup" aria-label="Adjustable text size">
-              {(
-                [
-                  { id: 'normal', label: 'Standard (16px)' },
-                  { id: 'large', label: 'Large (18px)' },
-                  { id: 'xlarge', label: 'Extra Large (21px)' },
-                ] as Array<{ id: TextSizeOption; label: string }>
-              ).map((sizeOpt) => {
+            <div
+              className="mt-2.5 flex flex-wrap gap-3"
+              role="radiogroup"
+              aria-label="Adjustable text size"
+              onKeyDown={handleTextSizeKeyDown}
+            >
+              {textSizeOptions.map((sizeOpt) => {
                 const selected = preferences.textSize === sizeOpt.id;
                 return (
                   <button
@@ -342,6 +379,8 @@ export const OnboardingWizard: React.FC<OnboardingWizardProps> = ({
                     type="button"
                     role="radio"
                     aria-checked={selected}
+                    tabIndex={selected ? 0 : -1}
+                    data-text-size={sizeOpt.id}
                     onClick={() => onUpdatePreferences({ textSize: sizeOpt.id })}
                     className={`rounded-lg border-2 px-4 py-2.5 text-sm font-semibold transition-colors ${
                       selected
@@ -388,7 +427,7 @@ export const OnboardingWizard: React.FC<OnboardingWizardProps> = ({
               <h2 className="font-display text-base font-bold text-[#001F3F] high-contrast:text-white">
                 Reduced Motion
               </h2>
-              <p className="mt-1 text-sm text-slate-600 high-contrast:text-slate-300">
+              <p id="reduced-motion-description" className="mt-1 text-sm text-slate-600 high-contrast:text-slate-300">
                 Disables non-essential transitions and smooth scrolling.
               </p>
             </div>
@@ -396,6 +435,7 @@ export const OnboardingWizard: React.FC<OnboardingWizardProps> = ({
               type="button"
               role="switch"
               aria-checked={preferences.reducedMotion}
+              aria-describedby="reduced-motion-description"
               onClick={() => onUpdatePreferences({ reducedMotion: !preferences.reducedMotion })}
               className={`rounded-lg border-2 px-5 py-2.5 text-sm font-semibold transition-colors ${
                 preferences.reducedMotion

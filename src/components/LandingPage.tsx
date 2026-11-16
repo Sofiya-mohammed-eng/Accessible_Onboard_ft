@@ -116,6 +116,7 @@ export const LandingPage: React.FC<LandingPageProps> = ({
   const [problemSlide, setProblemSlide] = React.useState(0);
   const [problemPlaying, setProblemPlaying] = React.useState(false);
   const [problemPaused, setProblemPaused] = React.useState(false);
+  const [problemAutoPaused, setProblemAutoPaused] = React.useState(false);
 
   React.useEffect(() => {
     const stage = stageRef.current;
@@ -154,13 +155,13 @@ export const LandingPage: React.FC<LandingPageProps> = ({
   }, []);
 
   React.useEffect(() => {
-    if (!problemPlaying || problemPaused) return;
+    if (!problemPlaying || problemPaused || problemAutoPaused) return;
     const count = story.problems.length;
     const timer = window.setInterval(() => {
       setProblemIndex((index) => (index + 1) % count);
     }, 4500);
     return () => window.clearInterval(timer);
-  }, [problemPlaying, problemPaused, story.problems.length]);
+  }, [problemPlaying, problemPaused, problemAutoPaused, story.problems.length]);
 
   React.useLayoutEffect(() => {
     const measure = () => {
@@ -176,13 +177,17 @@ export const LandingPage: React.FC<LandingPageProps> = ({
   return (
     <div className="bg-transparent high-contrast:bg-black">
       {/* Hero Section */}
-      <section className="mx-auto max-w-7xl px-4 py-12 sm:px-6 lg:px-8 lg:py-16">
+      <section
+        aria-labelledby="home-hero-title"
+        className="mx-auto max-w-7xl px-4 py-12 sm:px-6 lg:px-8 lg:py-16"
+      >
         <div className="grid grid-cols-1 gap-10 lg:grid-cols-12 lg:items-stretch">
           <div className="flex flex-col justify-center lg:col-span-6">
             <p className="text-sm font-semibold text-[#0056B3] high-contrast:text-cyan-300">
               {page.homeKicker}
             </p>
             <h1
+              id="home-hero-title"
               className="mt-3 font-display font-bold tracking-tight text-[#001F3F] high-contrast:text-white"
               style={{ fontSize: 'clamp(2.25rem, 4vw, 3.35rem)', lineHeight: 1.12, textWrap: 'balance' }}
             >
@@ -227,10 +232,16 @@ export const LandingPage: React.FC<LandingPageProps> = ({
         </div>
       </section>
 
-      <section className="border-t border-white/70 bg-white/35 py-14 backdrop-blur-sm high-contrast:border-white high-contrast:bg-neutral-950">
+      <section
+        aria-labelledby="home-supports-title"
+        className="border-t border-white/70 bg-white/35 py-14 backdrop-blur-sm high-contrast:border-white high-contrast:bg-neutral-950"
+      >
         <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
           <div className="max-w-3xl">
-            <h2 className="font-display text-2xl font-bold text-[#001F3F] sm:text-3xl high-contrast:text-white">
+            <h2
+              id="home-supports-title"
+              className="font-display text-2xl font-bold text-[#001F3F] sm:text-3xl high-contrast:text-white"
+            >
               {story.supportTitle}
             </h2>
             <p className="mt-3 text-base leading-relaxed text-slate-600 high-contrast:text-slate-300">
@@ -265,7 +276,10 @@ export const LandingPage: React.FC<LandingPageProps> = ({
                       >
                         <item.icon className="h-5 w-5" />
                       </span>
-                      <span className={`font-display text-3xl font-bold leading-none ${ink ? 'text-white/80' : 'text-[#1a73e8]'}`}>
+                      <span
+                        aria-hidden="true"
+                        className={`font-display text-3xl font-bold leading-none ${ink ? 'text-white/80' : 'text-[#1a73e8]'}`}
+                      >
                         0{index + 1}
                       </span>
                     </div>
@@ -285,11 +299,15 @@ export const LandingPage: React.FC<LandingPageProps> = ({
 
       <section
         ref={problemSectionRef}
+        aria-labelledby="home-problems-title"
         className="border-t border-white/70 py-14 high-contrast:border-white high-contrast:bg-black"
       >
         <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
           <div className="max-w-3xl">
-            <h2 className="font-display text-2xl font-bold text-[#001F3F] sm:text-3xl high-contrast:text-white">
+            <h2
+              id="home-problems-title"
+              className="font-display text-2xl font-bold text-[#001F3F] sm:text-3xl high-contrast:text-white"
+            >
               {story.problemTitle}
             </h2>
             <p className="mt-3 text-base leading-relaxed text-slate-600 high-contrast:text-slate-300">
@@ -297,6 +315,9 @@ export const LandingPage: React.FC<LandingPageProps> = ({
             </p>
           </div>
           <div
+            role="region"
+            aria-roledescription="carousel"
+            aria-label={story.problemTitle}
             className="mt-8 overflow-hidden"
             onMouseEnter={() => setProblemPaused(true)}
             onMouseLeave={() => setProblemPaused(false)}
@@ -317,10 +338,17 @@ export const LandingPage: React.FC<LandingPageProps> = ({
               return (
                 <article
                   key={item.title}
+                  role="group"
+                  aria-roledescription="slide"
+                  aria-label={`${index + 1} of ${story.problems.length}`}
+                  aria-hidden={!active}
                   className={`${face} w-[88%] shrink-0 snap-start rounded-[1.75rem] border border-white/70 p-7 shadow-[0_24px_50px_-30px_rgba(8,40,90,0.45)] transition-transform duration-500 sm:w-[72%] sm:p-9 high-contrast:border-white high-contrast:bg-black ${active ? 'scale-100' : 'scale-[0.97]'}`}
                 >
                   <div className="flex items-center justify-between gap-4">
-                    <p className={`font-display text-5xl font-bold leading-none ${ink ? 'text-white' : 'text-[#1a73e8]'}`}>
+                    <p
+                      aria-hidden="true"
+                      className={`font-display text-5xl font-bold leading-none ${ink ? 'text-white' : 'text-[#1a73e8]'}`}
+                    >
                       0{index + 1}
                     </p>
                     <item.icon className={`h-6 w-6 ${ink ? 'text-white' : 'text-[#0d4f9e]'}`} aria-hidden="true" />
@@ -336,26 +364,41 @@ export const LandingPage: React.FC<LandingPageProps> = ({
             })}
             </div>
           </div>
-          <div className="mt-4 flex gap-2">
+          <div className="mt-4 flex flex-wrap items-center gap-2">
             {story.problems.map((item, index) => (
               <button
                 key={item.title}
                 type="button"
                 onClick={() => showProblem(index)}
+                aria-label={`Show slide ${index + 1} of ${story.problems.length}: ${item.title}`}
                 aria-current={index === problemIndex ? 'true' : undefined}
                 className={`rounded-full px-3 py-1 text-sm font-bold ${index === problemIndex ? 'bg-[#1a73e8] text-white' : 'text-[#0d4f9e] high-contrast:text-white'}`}
               >
-                0{index + 1}
+                <span aria-hidden="true">0{index + 1}</span>
               </button>
             ))}
+            <button
+              type="button"
+              onClick={() => setProblemAutoPaused((paused) => !paused)}
+              aria-pressed={problemAutoPaused}
+              className="ml-1 rounded-full border border-[#9eb8d6] px-3 py-1 text-sm font-semibold text-[#0d4f9e] high-contrast:border-white high-contrast:text-white"
+            >
+              {problemAutoPaused ? 'Play highlights' : 'Pause highlights'}
+            </button>
           </div>
         </div>
       </section>
 
-      <section className="border-t border-white/70 bg-white/35 py-14 high-contrast:border-white high-contrast:bg-neutral-950">
+      <section
+        aria-labelledby="home-steps-title"
+        className="border-t border-white/70 bg-white/35 py-14 high-contrast:border-white high-contrast:bg-neutral-950"
+      >
         <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
           <div className="max-w-3xl">
-            <h2 className="font-display text-2xl font-bold text-[#001F3F] sm:text-3xl high-contrast:text-white">
+            <h2
+              id="home-steps-title"
+              className="font-display text-2xl font-bold text-[#001F3F] sm:text-3xl high-contrast:text-white"
+            >
               {story.stepsTitle}
             </h2>
             <p className="mt-3 text-base leading-relaxed text-slate-600 high-contrast:text-slate-300">
@@ -369,7 +412,7 @@ export const LandingPage: React.FC<LandingPageProps> = ({
                 className="rounded-3xl border border-white/80 bg-white/80 p-6 shadow-[0_18px_50px_-28px_rgba(26,115,232,0.45)] high-contrast:border-white high-contrast:bg-black"
               >
                 <item.icon className="h-6 w-6 text-[#1a73e8]" aria-hidden="true" />
-                <p className="mt-4 text-sm font-bold text-[#1a73e8]">0{index + 1}</p>
+                <p aria-hidden="true" className="mt-4 text-sm font-bold text-[#1a73e8]">0{index + 1}</p>
                 <h3 className="mt-1 font-display text-xl font-semibold text-[#001F3F] high-contrast:text-white">
                   {item.title}
                 </h3>
@@ -380,10 +423,13 @@ export const LandingPage: React.FC<LandingPageProps> = ({
         </div>
       </section>
 
-      <section className="border-t border-white/70 py-14 high-contrast:border-white high-contrast:bg-black">
+      <section
+        aria-labelledby="home-close-title"
+        className="border-t border-white/70 py-14 high-contrast:border-white high-contrast:bg-black"
+      >
         <div className="mx-auto grid max-w-7xl gap-8 px-4 sm:px-6 lg:px-8">
           <div className="rounded-3xl bg-gradient-to-br from-[#0d4f9e] via-[#1a73e8] to-[#4aa3f0] p-7 text-white shadow-[0_22px_50px_-28px_rgba(26,115,232,0.55)]">
-            <h2 className="font-display text-2xl font-bold">{story.closeTitle}</h2>
+            <h2 id="home-close-title" className="font-display text-2xl font-bold">{story.closeTitle}</h2>
             <p className="mt-3 text-base leading-relaxed text-white/90">{story.closeBody}</p>
             <button
               type="button"

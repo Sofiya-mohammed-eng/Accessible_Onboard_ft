@@ -193,6 +193,32 @@ export default function App() {
 
   const currentLangOption = getLanguageOption(preferences.language);
   const page = getPageCopy(preferences.language);
+  const viewAnnouncements: Record<NavigationView, string> =
+    preferences.language === 'am'
+      ? {
+          landing: 'የመነሻ ገጽ',
+          onboarding: 'የተደራሽነት ማዋቀሪያ',
+          dashboard: 'ዳሽቦርድ',
+          scanner: 'የቅጽ ቃኚ',
+          jobs: 'ሥራዎችን ይፈልጉ',
+          apply: 'የማመልከቻ እርዳታ',
+          login: 'ይግቡ',
+          verify: 'ማረጋገጫ',
+          review: 'የመጨረሻ ግምገማ',
+        }
+      : {
+          landing: 'Home page',
+          onboarding: 'Accessibility setup',
+          dashboard: 'Dashboard',
+          scanner: 'Form scanner',
+          jobs: 'Job search',
+          apply: 'Application assistant',
+          login: 'Sign in',
+          verify: 'Verification',
+          review: 'Final review',
+        };
+  const viewAnnouncement = viewAnnouncements[currentView];
+
   const openLanguage = useCallback(() => setStartupModalOpen(true), []);
   const openDashboard = useCallback(() => handleNavigate('dashboard'), [handleNavigate]);
   const chooseLanguage = useCallback(
@@ -209,6 +235,10 @@ export default function App() {
       <a href="#main-content" className="skip-link">
         Skip to main content
       </a>
+
+      <p className="sr-only" role="status" aria-live="polite" aria-atomic="true">
+        {viewAnnouncement}
+      </p>
 
       <AppHeader
         currentView={currentView}
@@ -229,6 +259,7 @@ export default function App() {
           <div
             role="status"
             aria-live="polite"
+            aria-atomic="true"
             className="border-b border-[#d5e6f7] bg-white/80 px-4 py-2 text-xs text-[#0e2a4a] backdrop-blur high-contrast:border-yellow-300 high-contrast:bg-black high-contrast:text-yellow-200"
           >
             <div className="mx-auto flex max-w-7xl items-center justify-between gap-4 sm:px-6 lg:px-8">
@@ -241,9 +272,12 @@ export default function App() {
               <button
                 type="button"
                 onClick={() => setLiveCaption('')}
+                aria-label={
+                  preferences.language === 'am' ? 'መግለጫውን ዝጋ' : 'Dismiss live caption'
+                }
                 className="text-xs font-semibold text-[#0056B3] hover:underline shrink-0 high-contrast:text-cyan-300"
               >
-                Dismiss
+                {preferences.language === 'am' ? 'ዝጋ' : 'Dismiss'}
               </button>
             </div>
           </div>

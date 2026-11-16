@@ -170,13 +170,17 @@ export function GazeSettingsPanel({
 
   useEffect(() => {
     if (!isOpen) return;
+    const previousFocus = document.activeElement as HTMLElement | null;
     closeButtonRef.current?.focus();
 
     const handleKeyDown = (event: KeyboardEvent) => {
       if (event.key === 'Escape') onClose();
     };
     window.addEventListener('keydown', handleKeyDown);
-    return () => window.removeEventListener('keydown', handleKeyDown);
+    return () => {
+      window.removeEventListener('keydown', handleKeyDown);
+      previousFocus?.focus();
+    };
   }, [isOpen, onClose]);
 
   if (!isOpen) return null;
@@ -186,6 +190,7 @@ export function GazeSettingsPanel({
       role="dialog"
       aria-modal="false"
       aria-labelledby="gaze-settings-title"
+      aria-describedby="gaze-settings-subtitle"
       className="fixed bottom-20 right-4 z-[85] flex max-h-[calc(100vh-6rem)] w-[min(94vw,25rem)] flex-col overflow-hidden rounded-xl border-2 border-[#001F3F] bg-white shadow-2xl high-contrast:border-yellow-300 high-contrast:bg-black"
     >
       <div className="flex items-start justify-between gap-3 border-b border-slate-200 p-4 high-contrast:border-white">
@@ -200,7 +205,7 @@ export function GazeSettingsPanel({
             >
               Gaze &amp; Head Control
             </h2>
-            <p className="mt-0.5 text-xs text-slate-600 high-contrast:text-slate-300">
+            <p id="gaze-settings-subtitle" className="mt-0.5 text-xs text-slate-600 high-contrast:text-slate-300">
               Hands-free cursor, dwell or blink click, voice commands, and calibration.
             </p>
           </div>
@@ -280,7 +285,12 @@ export function GazeSettingsPanel({
             <Focus className="h-3.5 w-3.5" aria-hidden="true" />
             Tracking mode
           </legend>
-          <div role="radiogroup" aria-label="Gaze tracking mode" className="mt-2 grid grid-cols-3 gap-2">
+          <div
+            role="radiogroup"
+            aria-label="Gaze tracking mode"
+            aria-describedby="gaze-tracking-mode-detail"
+            className="mt-2 grid grid-cols-3 gap-2"
+          >
             {MODE_OPTIONS.map((option) => {
               const selected = preferences.gazeTrackingMode === option.id;
               return (
@@ -301,7 +311,7 @@ export function GazeSettingsPanel({
               );
             })}
           </div>
-          <p className="mt-1.5 text-[11px] text-slate-500 high-contrast:text-slate-400">
+          <p id="gaze-tracking-mode-detail" className="mt-1.5 text-[11px] text-slate-500 high-contrast:text-slate-400">
             {MODE_OPTIONS.find((option) => option.id === preferences.gazeTrackingMode)?.detail}
           </p>
         </fieldset>
@@ -314,6 +324,7 @@ export function GazeSettingsPanel({
           <div
             role="radiogroup"
             aria-label="Gaze click activation mode"
+            aria-describedby="gaze-activation-detail"
             className="mt-2 grid grid-cols-3 gap-2"
           >
             {ACTIVATION_OPTIONS.map((option) => {
@@ -336,7 +347,7 @@ export function GazeSettingsPanel({
               );
             })}
           </div>
-          <p className="mt-1.5 text-[11px] text-slate-500 high-contrast:text-slate-400">
+          <p id="gaze-activation-detail" className="mt-1.5 text-[11px] text-slate-500 high-contrast:text-slate-400">
             {activationDetail}
           </p>
         </fieldset>
