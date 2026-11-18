@@ -35,10 +35,16 @@ export class ApiError extends Error {
   }
 }
 
+function apiOrigin(): string {
+  const configured = import.meta.env.VITE_API_URL;
+  if (typeof configured !== 'string') return '';
+  return configured.trim().replace(/\/$/, '');
+}
+
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   let response: Response;
   try {
-    response = await fetch(`/api/v1${path}`, {
+    response = await fetch(`${apiOrigin()}/api/v1${path}`, {
       ...init,
       headers: {
         Accept: 'application/json',
