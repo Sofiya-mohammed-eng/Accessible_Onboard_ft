@@ -35,10 +35,17 @@ export class ApiError extends Error {
   }
 }
 
+const PUBLISHED_API = 'https://accessible-onboard-bk.vercel.app';
+
 function apiOrigin(): string {
   const configured = import.meta.env.VITE_API_URL;
-  if (typeof configured !== 'string') return '';
-  return configured.trim().replace(/\/$/, '');
+  if (typeof configured === 'string' && configured.trim()) {
+    return configured.trim().replace(/\/$/, '');
+  }
+  // Local dev uses the Vite proxy. A published build with no API address
+  // must still reach the live AllWays API instead of the frontend host.
+  if (import.meta.env.DEV) return '';
+  return PUBLISHED_API;
 }
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {

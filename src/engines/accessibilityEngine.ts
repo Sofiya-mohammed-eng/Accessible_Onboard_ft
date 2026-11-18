@@ -271,13 +271,31 @@ export function ttsRequest(lang: string, text: string, slow = false): string {
   return `/api/tts?lang=${voiceCode}&slow=${useSlow ? '1' : '0'}&text=${encodeURIComponent(text)}`;
 }
 
+export function speechSegments(text: string, fallbackLang: string): Array<{ text: string; lang: string }> {
+  const fallback = fallbackLang.toLowerCase().startsWith('am') ? 'am-ET' : 'en-US';
+  const segments: Array<{ text: string; lang: string }> = [];
+  for (const piece of text.split(/(\s+)/)) {
+    if (!piece) continue;
+    const ethiopic = /[\u1200-\u137F]/.test(piece);
+    const latin = /[A-Za-z]/.test(piece);
+    const last = segments[segments.length - 1];
+    const lang = ethiopic ? 'am-ET' : latin ? 'en-US' : last?.lang || fallback;
+    if (last && last.lang === lang) last.text += piece;
+    else segments.push({ text: piece, lang });
+  }
+  return segments
+    .map((segment) => ({ text: segment.text.trim(), lang: segment.lang }))
+    .filter((segment) => segment.text.length > 0);
+}
+
 async function speakWithAudio(text: string, lang: string, rate: number, token: number, slow = false): Promise<boolean> {
-  const voiceCode = lang.toLowerCase().startsWith('am') ? 'am' : 'en';
-  for (const part of chunkText(text)) {
-    if (token !== speechToken) return false;
-    const url = ttsRequest(voiceCode, part, slow);
-    const played = await playAudioUrl(url, rate, token);
-    if (!played) return false;
+  for (const segment of speechSegments(text, lang)) {
+    for (const part of chunkText(segment.text)) {
+      if (token !== speechToken) return false;
+      const url = ttsRequest(segment.lang, part, slow);
+      const played = await playAudioUrl(url, rate, token);
+      if (!played) return false;
+    }
   }
   return token === speechToken;
 }
@@ -395,8 +413,9 @@ export function speakAloud(
     beginSpeechPause();
     releaseRecognitionForSpeech();
     try {
-    const amharicVoice = (lang || '').toLowerCase().startsWith('am');
-    const played = await speakWithAudio(text, lang || 'en-US', rate, token, slow);
+    const spokenLang = lang || 'en-US';
+    const amharicVoice = speechSegments(text, spokenLang).some((segment) => segment.lang.startsWith('am'));
+    const played = await speakWithAudio(text, spokenLang, rate, token, slow);
     if (token !== speechToken) return;
     if (played) {
       done();

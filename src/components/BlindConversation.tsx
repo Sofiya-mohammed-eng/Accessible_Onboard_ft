@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { GUIDE_SPEECH_RATE, listenFailureMessage, listenOnce, speakAndWait, stopConversationRecognition, stopSpeakingAloud, takeListenFailure } from '../engines/accessibilityEngine';
 import { getLanguageOption, getLocalizedCopy } from '../engines/i18n';
+import { leyuSpokenAnswer } from '../engines/leyuConversation';
 import { listenForStartupLanguage, pageListenLanguage, startupListenRetry } from '../engines/recognitionLanguage';
 import { getPageCopy, unsupportedLanguageNotice } from '../engines/pageCopy';
 import { acceptHeldConfirmation, accountChoice, applyAccountFields, cleanSpokenName, emptyHeldAccount, firstHeldField, interpretAccount, releaseHeldField, retainAccountFields } from '../engines/accountIntent';
@@ -297,6 +298,8 @@ export function BlindConversation({
           return '';
         }
         captionRef.current(transcript);
+        const natural = await leyuSpokenAnswer(transcript);
+        if (!cancelled && natural) await say(natural, 'am-ET');
         return transcript;
       };
       if (lang) return once(lang);
@@ -434,7 +437,7 @@ export function BlindConversation({
         let raw = await hear();
         if (cancelled) return 'done';
         if (!raw) {
-          await say(amharic() ? 'አልሰማሁም። እንደገና ይናገሩ።' : 'I did not hear you. Please say it again.');
+          await say(amharic() ? 'ይቅርታ፣ አልሰማሁም። እንደገና ቢናገሩልኝ እቀበላለሁ።' : 'I did not hear you. Please say it again.');
           continue;
         }
         const routed = await routeUtterance(raw);
@@ -563,7 +566,9 @@ export function BlindConversation({
       if (!root || cancelled) return;
 
       if (languageOpen && startupStep === 'language') {
-        await say(amharic() ? 'እንግሊዝኛ ወይም አማርኛ ይበሉ።' : 'Say English, or say Amharic.');
+        await say('Say English, or say Amharic.', 'en-US');
+        if (cancelled) return;
+        await say('እንግሊዝኛ መጠቀም ከፈለጉ እንግሊዝኛ ይበሉ። አማርኛ ከፈለጉ አማርኛ ይበሉ።', 'am-ET');
         for (let attempt = 0; attempt < 4 && !cancelled; attempt += 1) {
           const choice = await listenForStartupLanguage((lang) => {
             captionRef.current(lang === 'am' ? 'እያዳመጥኩ ነው…' : 'Listening…');
@@ -620,7 +625,7 @@ export function BlindConversation({
       if (pageKey === 'landing') {
         const landingText = visibleHeading(root);
         await say(landingText || (amharic()
-          ? 'ከኢትዮጵያ እስከ ዓለም ሥራ ይፈልጉ። ለመጀመር ጀምር ይበሉ።'
+          ? 'ከኢትዮጵያ እስከ ዓለም ሥራ ይፈልጉ። ለመጀመር ጀምር ብለው ቢነግሩኝ እንጀምራለን።'
           : 'Find work from Ethiopia to the world. Say get started.'));
         if (cancelled) return;
         for (let attempt = 0; attempt < 4 && !cancelled; attempt += 1) {
@@ -1072,7 +1077,7 @@ export function BlindConversation({
           const ignore = ['the', 'a', 'an', 'job', 'jobs', 'work', 'want', 'i', 'my', 'please', 'ሥራ', 'ስራ', 'እፈልጋለሁ', 'እፈልጋለው', 'ፈልጌ', 'ነው', 'አንድ'];
           const jobsHeading = visibleHeading(root);
           await say(amharic()
-            ? `${jobsHeading ? `${jobsHeading}. ` : ''}ምን ዓይነት ሥራ ይፈልጋሉ? የሥራውን ስም ይናገሩ።`
+            ? `${jobsHeading ? `${jobsHeading}. ` : ''}ምን ዓይነት ሥራ ይፈልጋሉ? የሥራውን ስም በነፃነት ይንገሩኝ።`
             : `${jobsHeading ? `${jobsHeading}. ` : ''}What job do you want? Say the kind of work.`);
           let narrowed = false;
           for (let attempt = 0; attempt < 4 && !cancelled && !narrowed; attempt += 1) {
@@ -1270,7 +1275,7 @@ export function BlindConversation({
         for (let attempt = 0; attempt < 4 && !cancelled; attempt += 1) {
           const commandHeard = await hear();
           if (!commandHeard) {
-            await say(amharic() ? 'አልሰማሁም። እንደገና ይናገሩ።' : 'I did not hear you. Please say it again.');
+            await say(amharic() ? 'ይቅርታ፣ አልሰማሁም። እንደገና ቢናገሩልኝ እቀበላለሁ።' : 'I did not hear you. Please say it again.');
             continue;
           }
           const routed = await routeUtterance(commandHeard);

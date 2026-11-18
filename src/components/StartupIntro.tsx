@@ -24,7 +24,7 @@ export function StartupIntro({ onFinished }: { onFinished: () => void }) {
 
   useEffect(() => {
     if (phase !== 'welcome') return;
-    speakAloud(WELCOME_TITLE, { lang: 'en-US', rate: 0.92 });
+    speakAloud(`${WELCOME_TITLE}. ወደ AllWays እንኳን በደህና መጡ።`, { lang: 'en-US', rate: 0.92 });
     const timer = window.setTimeout(onFinished, welcomeFallsBackMs('welcome', motionIsReduced()));
     return () => window.clearTimeout(timer);
   }, [phase, onFinished]);

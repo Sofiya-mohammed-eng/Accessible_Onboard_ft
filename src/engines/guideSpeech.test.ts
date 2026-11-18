@@ -3,7 +3,7 @@ import { readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import test from 'node:test';
 import { fileURLToPath } from 'node:url';
-import { GUIDE_SPEECH_RATE, speakAloud, speakAndWait, stopSpeakingAloud, ttsRequest } from './accessibilityEngine';
+import { GUIDE_SPEECH_RATE, speakAloud, speakAndWait, speechSegments, stopSpeakingAloud, ttsRequest } from './accessibilityEngine';
 import { resetMicrophoneOwnerForTests } from './microphoneOwner';
 import { DEFAULT_PREFERENCES } from './preferencesStore';
 
@@ -98,6 +98,14 @@ test('English guide speech requests slow speech', () => {
     text: 'Hello.',
   });
   assert.equal(requestParts(ttsRequest('en-US', 'Hello.', false)).slow, '0');
+});
+
+test('Amharic words use the Amharic voice even inside an English line', () => {
+  assert.deepEqual(speechSegments('Say English, or say Amharic. እንግሊዝኛ ወይም አማርኛ ይበሉ።', 'en-US'), [
+    { text: 'Say English, or say Amharic.', lang: 'en-US' },
+    { text: 'እንግሊዝኛ ወይም አማርኛ ይበሉ።', lang: 'am-ET' },
+  ]);
+  assert.deepEqual(requestParts(ttsRequest('am-ET', 'እንግሊዝኛ ወይም አማርኛ ይበሉ።', true)).lang, 'am');
 });
 
 test('Amharic keeps its existing slow route', () => {
